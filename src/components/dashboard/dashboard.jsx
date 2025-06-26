@@ -55,13 +55,26 @@ const App = () => {
         />
       </Sider>
       {/* Main content area */}
-      <Layout style={{ width: "100%" }}>
+      <Layout
+        style={{
+          minHeight: "100vh",
+          width: "calc(100vw - 200px)",
+        }}
+      >
         <Header style={{ background: colorBgContainer }} />
-        <Content style={{ padding: 24 }}>
+        <Content style={{ padding: 0, height: "100%", background: "#fff" }}>
           <div
             style={{
-              background: colorBgContainer,
-              borderRadius: borderRadiusLG,
+              height: "100%",
+              width: "100%",
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "stretch",
+              alignItems: "stretch",
+              margin: 0,
+              maxWidth: "100%",
+              borderRadius: 0,
+              background: "#fff",
             }}
           >
             <Tablelisting />

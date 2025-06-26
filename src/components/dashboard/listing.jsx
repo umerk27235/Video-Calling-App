@@ -72,11 +72,14 @@ const data = [
   },
 ];
 const Tablelisting = () => (
-  <Table
-    columns={columns}
-    dataSource={data}
-    pagination={{ pageSize: 5 }}
-    style={{ width: "100%" }}
-  />
+  <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+    <Table
+      columns={columns}
+      dataSource={data}
+      pagination={{ pageSize: 5 }}
+      style={{ width: "100%", height: "100%" }}
+      scroll={{ x: true }}
+    />
+  </div>
 );
 export default Tablelisting;
