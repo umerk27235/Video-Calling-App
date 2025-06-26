@@ -1,6 +1,6 @@
 import { Space, Table, Tag } from "antd";
 
-const Tablelisting = ({ data, onDelete }) => {
+const Tablelisting = ({ data, onDeleteClick }) => {
   const columns = [
     {
       title: "Name",
@@ -44,7 +44,7 @@ const Tablelisting = ({ data, onDelete }) => {
       render: (_, record) => (
         <Space size="middle">
           <a>Make a Call</a>
-          <a onClick={() => onDelete(record.key)} style={{ color: "red" }}>
+          <a onClick={() => onDeleteClick(record)} style={{ color: "red" }}>
             Delete
           </a>
         </Space>

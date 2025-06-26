@@ -5,9 +5,10 @@ import {
   UserOutlined,
   VideoCameraOutlined,
 } from "@ant-design/icons";
-import { Button, Layout, Menu, theme } from "antd";
+import { Button, Layout, Menu, notification, theme } from "antd";
 import Tablelisting from "./listing";
 import AddContactModal from "./addmodal";
+import ConfirmDeleteModal from "./ConfirmDeleteModal";
 
 const { Header, Content, Footer, Sider } = Layout;
 
@@ -26,6 +27,8 @@ const App = () => {
   theme.useToken();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedKey, setSelectedKey] = useState("1");
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [selectedContact, setSelectedContact] = useState(null);
 
   const [contacts, setContacts] = useState(() => {
     const stored = localStorage.getItem("contacts");
@@ -44,10 +47,27 @@ const App = () => {
     localStorage.setItem("contacts", JSON.stringify(newContacts));
   };
 
-  const handleDeleteContact = (keyToDelete) => {
-    const updated = contacts.filter((contact) => contact.key !== keyToDelete);
+  const handleDeleteClick = (contact) => {
+    setSelectedContact(contact);
+    setDeleteModalOpen(true);
+  };
+
+  const confirmDelete = () => {
+    const updated = contacts.filter((c) => c.key !== selectedContact.key);
+
     setContacts(updated);
     localStorage.setItem("contacts", JSON.stringify(updated));
+    setDeleteModalOpen(false);
+    setSelectedContact(null);
+
+    setTimeout(() => {
+      notification.success({
+        message: "Contact Deleted",
+        description: `${selectedContact.name} has been removed from your contacts.`,
+        placement: "topRight",
+        duration: 3,
+      });
+    }, 300);
   };
 
   return (
@@ -144,7 +164,7 @@ const App = () => {
             }}
           >
             {selectedKey === "1" ? (
-              <Tablelisting data={contacts} onDelete={handleDeleteContact} />
+              <Tablelisting data={contacts} onDeleteClick={handleDeleteClick} />
             ) : (
               <div
                 style={{
@@ -160,6 +180,12 @@ const App = () => {
                 Coming Soon
               </div>
             )}
+            <ConfirmDeleteModal
+              open={deleteModalOpen}
+              contactName={selectedContact?.name}
+              onConfirm={confirmDelete}
+              onCancel={() => setDeleteModalOpen(false)}
+            />
           </div>
         </Content>
       </Layout>
