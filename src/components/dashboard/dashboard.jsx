@@ -9,8 +9,9 @@ import { Button, Layout, Menu, notification, theme } from "antd";
 import Tablelisting from "./Listing";
 import AddContactModal from "./addmodal";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
+import UserDropdown from "./UserDropdown";
 
-const { Header, Content, Footer, Sider } = Layout;
+const { Content, Sider } = Layout;
 
 const items = [
   UserOutlined,
@@ -54,7 +55,6 @@ const App = () => {
 
   const confirmDelete = () => {
     const updated = contacts.filter((c) => c.key !== selectedContact.key);
-
     setContacts(updated);
     localStorage.setItem("contacts", JSON.stringify(updated));
     setDeleteModalOpen(false);
@@ -71,125 +71,130 @@ const App = () => {
   };
 
   return (
-    <Layout style={{ minHeight: "100vh" }}>
-      <Sider
-        style={{ position: "fixed", height: "100vh", left: 0, top: 0 }}
-        breakpoint="lg"
-        collapsedWidth="0"
-        onBreakpoint={(broken) => {
-          console.log("Breakpoint hit:", broken);
-        }}
-        onCollapse={(collapsed, type) => {
-          console.log("Sidebar collapsed:", collapsed, type);
-        }}
-      >
-        <div
-          className="demo-logo-vertical"
-          style={{
-            height: 32,
-            margin: 16,
-          }}
-        />
-        <Menu
-          theme="dark"
-          mode="inline"
-          selectedKeys={[selectedKey]}
-          items={items}
-          onClick={({ key }) => setSelectedKey(key)}
-        />
-      </Sider>
-      {/* Main content area */}
-
-      <Layout
+    <div style={{ position: "relative", minHeight: "100vh" }}>
+      <div
         style={{
-          minHeight: "100vh",
-          width: "calc(100vw - 200px)",
+          position: "absolute",
+          top: 16,
+          right: 24,
+          zIndex: 1000,
         }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "32px 32px 16px 32px",
-            background: "#fff",
-            borderBottom: "1px solid #f0f0f0",
-            gap: 16,
-          }}
+      ></div>
+
+      <Layout style={{ minHeight: "100vh" }}>
+        <Sider
+          style={{ position: "fixed", height: "100vh", left: 0, top: 0 }}
+          breakpoint="lg"
+          collapsedWidth="0"
         >
-          {selectedKey === "1" && (
-            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-              <ContactsOutlined style={{ fontSize: 32, color: "#1677ff" }} />
-              <h1
-                style={{
-                  margin: 0,
-                  fontSize: 32,
-                  fontWeight: 700,
-                  color: "#222",
-                  letterSpacing: 1,
-                }}
-              >
-                All Contacts
-              </h1>
-            </div>
-          )}
+          <div
+            className="demo-logo-vertical"
+            style={{
+              height: 32,
+              margin: 16,
+            }}
+          />
+          <Menu
+            theme="dark"
+            mode="inline"
+            selectedKeys={[selectedKey]}
+            items={items}
+            onClick={({ key }) => setSelectedKey(key)}
+          />
+        </Sider>
 
-          {selectedKey === "1" && (
-            <>
-              <Button onClick={() => setIsModalOpen(true)} type="primary">
-                Add Contact
-              </Button>
-              <AddContactModal
-                open={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
-                submit={handleAddContact}
-              />
-            </>
-          )}
-        </div>
-
-        <Content style={{ padding: 0, height: "100%", background: "#fff" }}>
+        <Layout style={{ minHeight: "100vh", width: "calc(100vw - 200px)" }}>
           <div
             style={{
-              height: "100%",
-              width: "100%",
               display: "flex",
-              flexDirection: "column",
-              justifyContent: "stretch",
-              alignItems: "stretch",
-              margin: 0,
-              maxWidth: "100%",
-              borderRadius: 0,
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "32px 32px 16px 32px",
               background: "#fff",
+              borderBottom: "1px solid #f0f0f0",
+              gap: 16,
             }}
           >
-            {selectedKey === "1" ? (
-              <Tablelisting data={contacts} onDeleteClick={handleDeleteClick} />
-            ) : (
-              <div
-                style={{
-                  flex: 1,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: 24,
-                  color: "#888",
-                  height: "100%",
-                }}
-              >
-                Coming Soon
+            {selectedKey === "1" && (
+              <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                <ContactsOutlined style={{ fontSize: 32, color: "#1677ff" }} />
+                <h1
+                  style={{
+                    margin: 0,
+                    fontSize: 32,
+                    fontWeight: 700,
+                    color: "#222",
+                    letterSpacing: 1,
+                  }}
+                >
+                  All Contacts
+                </h1>
               </div>
             )}
-            <ConfirmDeleteModal
-              open={deleteModalOpen}
-              contactName={selectedContact?.name}
-              onConfirm={confirmDelete}
-              onCancel={() => setDeleteModalOpen(false)}
+
+            {selectedKey === "1" && (
+              <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                <Button onClick={() => setIsModalOpen(true)} type="primary">
+                  Add Contact
+                </Button>
+                <UserDropdown />
+              </div>
+            )}
+
+            <AddContactModal
+              open={isModalOpen}
+              onClose={() => setIsModalOpen(false)}
+              submit={handleAddContact}
             />
           </div>
-        </Content>
+
+          <Content style={{ padding: 0, height: "100%", background: "#fff" }}>
+            <div
+              style={{
+                height: "100%",
+                width: "100%",
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "stretch",
+                alignItems: "stretch",
+                margin: 0,
+                maxWidth: "100%",
+                borderRadius: 0,
+                background: "#fff",
+              }}
+            >
+              {selectedKey === "1" ? (
+                <Tablelisting
+                  data={contacts}
+                  onDeleteClick={handleDeleteClick}
+                />
+              ) : (
+                <div
+                  style={{
+                    flex: 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 24,
+                    color: "#888",
+                    height: "100%",
+                  }}
+                >
+                  Coming Soon
+                </div>
+              )}
+
+              <ConfirmDeleteModal
+                open={deleteModalOpen}
+                contactName={selectedContact?.name}
+                onConfirm={confirmDelete}
+                onCancel={() => setDeleteModalOpen(false)}
+              />
+            </div>
+          </Content>
+        </Layout>
       </Layout>
-    </Layout>
+    </div>
   );
 };
 

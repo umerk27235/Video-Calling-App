@@ -20,10 +20,18 @@ const Login = () => {
   const onFinish = async (values) => {
     const { email, password } = values;
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
+        email,
+        password
+      );
+      const user = userCredential.user;
+
+      const displayName = user.displayName || "User";
+
       notification.success({
         message: "Login Successful",
-        description: "Welcome back!",
+        description: `Welcome back, ${displayName}!`,
       });
       navigate("/dashboard");
     } catch (error) {
