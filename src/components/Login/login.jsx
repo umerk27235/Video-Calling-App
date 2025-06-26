@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   Button,
   Checkbox,
@@ -11,6 +11,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../../../firebase";
+import { sendPasswordResetEmail } from "firebase/auth";
 
 const { Title, Text } = Typography;
 
@@ -35,12 +36,50 @@ const Login = () => {
       });
       navigate("/dashboard");
     } catch (error) {
+      let message = "Incorrect email or password.";
+
+      if (
+        error.code === "auth/user-not-found" ||
+        error.code === "auth/wrong-password"
+      ) {
+        message = "Incorrect email or password.";
+      } else if (error.code === "auth/too-many-requests") {
+        message = "Too many attempts. Please try again later.";
+      }
+
       notification.error({
         message: "Login Failed",
-        description: error.message,
+        description: message,
       });
     }
   };
+  const handleForgotPassword = async (email) => {
+    if (!email) {
+      return notification.warning({
+        message: "Missing Email",
+        description: "Please enter your email above first.",
+      });
+    }
+
+    try {
+      await sendPasswordResetEmail(auth, email);
+      notification.success({
+        message: "Reset Email Sent",
+        description: "Check your inbox for password reset instructions.",
+      });
+    } catch (error) {
+      notification.error({
+        message: "Failed to Send Reset Email",
+        description:
+          error.code === "auth/user-not-found" ||
+          error.code === "auth/invalid-email"
+            ? "No user found with this email."
+            : error.message,
+      });
+    }
+  };
+
+  const [emailInput, setEmailInput] = useState("");
 
   return (
     <div
@@ -84,7 +123,11 @@ const Login = () => {
             name="email"
             rules={[{ required: true, message: "Please input your email!" }]}
           >
-            <Input placeholder="Enter your email" />
+            <Input
+              placeholder="Enter your email"
+              value={emailInput}
+              onChange={(e) => setEmailInput(e.target.value)}
+            />
           </Form.Item>
 
           <Form.Item
@@ -97,6 +140,17 @@ const Login = () => {
 
           <Form.Item name="remember" valuePropName="checked">
             <Checkbox style={{ color: "#fff" }}>Remember me</Checkbox>
+          </Form.Item>
+          <Form.Item>
+            <div style={{ textAlign: "right" }}>
+              <Button
+                type="link"
+                style={{ color: "#C3D0E7", padding: 0 }}
+                onClick={() => handleForgotPassword(emailInput)}
+              >
+                Forgot Password?
+              </Button>
+            </div>
           </Form.Item>
 
           <Form.Item>
