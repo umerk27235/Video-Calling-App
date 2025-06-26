@@ -1,11 +1,13 @@
-import React from "react";
+import React, { useState } from "react";
 import {
+  ContactsOutlined,
   UploadOutlined,
   UserOutlined,
   VideoCameraOutlined,
 } from "@ant-design/icons";
-import { Layout, Menu, theme } from "antd";
+import { Button, Layout, Menu, theme } from "antd";
 import Tablelisting from "./listing";
+import AddContactModal from "./addmodal";
 
 const { Header, Content, Footer, Sider } = Layout;
 
@@ -17,14 +19,36 @@ const items = [
 ].map((icon, index) => ({
   key: String(index + 1),
   icon: React.createElement(icon),
-  label:
-    index === 0 ? "Dashboard" : index === 1 ? "User Settings" : "Coming Soon!",
+  label: index === 0 ? "Contacts" : "Coming Soon!",
 }));
 
 const App = () => {
-  const {
-    token: { colorBgContainer, borderRadiusLG },
-  } = theme.useToken();
+  theme.useToken();
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedKey, setSelectedKey] = useState("1");
+
+  const [contacts, setContacts] = useState(() => {
+    const stored = localStorage.getItem("contacts");
+    return stored ? JSON.parse(stored) : [];
+  });
+
+  const handleAddContact = (newContact) => {
+    const formattedContact = {
+      ...newContact,
+      key: Date.now().toString(),
+      tags: newContact.tags.split(",").map((tag) => tag.trim()),
+    };
+
+    const newContacts = [...contacts, formattedContact];
+    setContacts(newContacts);
+    localStorage.setItem("contacts", JSON.stringify(newContacts));
+  };
+
+  const handleDeleteContact = (keyToDelete) => {
+    const updated = contacts.filter((contact) => contact.key !== keyToDelete);
+    setContacts(updated);
+    localStorage.setItem("contacts", JSON.stringify(updated));
+  };
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
@@ -44,24 +68,66 @@ const App = () => {
           style={{
             height: 32,
             margin: 16,
-            background: "rgba(255, 255, 255, 0.2)",
           }}
         />
         <Menu
           theme="dark"
           mode="inline"
-          defaultSelectedKeys={["1"]}
+          selectedKeys={[selectedKey]}
           items={items}
+          onClick={({ key }) => setSelectedKey(key)}
         />
       </Sider>
       {/* Main content area */}
+
       <Layout
         style={{
           minHeight: "100vh",
           width: "calc(100vw - 200px)",
         }}
       >
-        <Header style={{ background: colorBgContainer }} />
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "32px 32px 16px 32px",
+            background: "#fff",
+            borderBottom: "1px solid #f0f0f0",
+            gap: 16,
+          }}
+        >
+          {selectedKey === "1" && (
+            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+              <ContactsOutlined style={{ fontSize: 32, color: "#1677ff" }} />
+              <h1
+                style={{
+                  margin: 0,
+                  fontSize: 32,
+                  fontWeight: 700,
+                  color: "#222",
+                  letterSpacing: 1,
+                }}
+              >
+                All Contacts
+              </h1>
+            </div>
+          )}
+
+          {selectedKey === "1" && (
+            <>
+              <Button onClick={() => setIsModalOpen(true)} type="primary">
+                Add Contact
+              </Button>
+              <AddContactModal
+                open={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+                submit={handleAddContact}
+              />
+            </>
+          )}
+        </div>
+
         <Content style={{ padding: 0, height: "100%", background: "#fff" }}>
           <div
             style={{
@@ -77,7 +143,23 @@ const App = () => {
               background: "#fff",
             }}
           >
-            <Tablelisting />
+            {selectedKey === "1" ? (
+              <Tablelisting data={contacts} onDelete={handleDeleteContact} />
+            ) : (
+              <div
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 24,
+                  color: "#888",
+                  height: "100%",
+                }}
+              >
+                Coming Soon
+              </div>
+            )}
           </div>
         </Content>
       </Layout>
