@@ -6,7 +6,7 @@ import {
   VideoCameraOutlined,
 } from "@ant-design/icons";
 import { Button, Layout, Menu, notification, theme } from "antd";
-import Tablelisting from "./listing";
+import Tablelisting from "./Listing";
 import AddContactModal from "./addmodal";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
 

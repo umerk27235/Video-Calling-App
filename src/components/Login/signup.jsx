@@ -1,34 +1,37 @@
 import React from "react";
-import {
-  Button,
-  Checkbox,
-  Form,
-  Input,
-  notification,
-  Typography,
-  Card,
-} from "antd";
-import { useNavigate } from "react-router-dom";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { Button, Form, Input, Typography, Card, notification } from "antd";
+import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { auth } from "../../../firebase";
+import { useNavigate } from "react-router-dom";
 
 const { Title, Text } = Typography;
 
-const Login = () => {
+const Signup = () => {
   const navigate = useNavigate();
 
   const onFinish = async (values) => {
-    const { email, password } = values;
+    const { name, email, password } = values;
+
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      notification.success({
-        message: "Login Successful",
-        description: "Welcome back!",
+      const userCredential = await createUserWithEmailAndPassword(
+        auth,
+        email,
+        password
+      );
+
+      await updateProfile(userCredential.user, {
+        displayName: name,
       });
+
+      notification.success({
+        message: "Signup Successful",
+        description: `Welcome, ${name}!`,
+      });
+
       navigate("/dashboard");
     } catch (error) {
       notification.error({
-        message: "Login Failed",
+        message: "Signup Failed",
         description: error.message,
       });
     }
@@ -61,43 +64,43 @@ const Login = () => {
       >
         <div style={{ textAlign: "center", marginBottom: 24 }}>
           <Title level={2} style={{ marginBottom: 0, color: "#FFFFFF" }}>
-            Welcome Back
+            Create Account
           </Title>
-          <Text style={{ color: "#C3D0E7" }}>Login to your account</Text>
+          <Text style={{ color: "#C3D0E7" }}>Sign up to get started</Text>
         </div>
-        <Form
-          name="login"
-          layout="vertical"
-          onFinish={onFinish}
-          initialValues={{ remember: true }}
-        >
+
+        <Form name="signup" layout="vertical" onFinish={onFinish}>
           <Form.Item
-            label={<span style={{ color: "#fff" }}>Email</span>}
+            label={<span style={{ color: "#FFFFFF" }}>Full Name</span>}
+            name="name"
+            rules={[{ required: true, message: "Please enter your name" }]}
+          >
+            <Input placeholder="Enter your name" />
+          </Form.Item>
+
+          <Form.Item
+            label={<span style={{ color: "#FFFFFF" }}>Email</span>}
             name="email"
-            rules={[{ required: true, message: "Please input your email!" }]}
+            rules={[{ required: true, message: "Please enter your email" }]}
           >
             <Input placeholder="Enter your email" />
           </Form.Item>
 
           <Form.Item
-            label={<span style={{ color: "#fff" }}>Password</span>}
+            label={<span style={{ color: "#FFFFFF" }}>Password</span>}
             name="password"
-            rules={[{ required: true, message: "Please input your password!" }]}
+            rules={[{ required: true, message: "Please enter your password" }]}
           >
             <Input.Password placeholder="Enter your password" />
-          </Form.Item>
-
-          <Form.Item name="remember" valuePropName="checked">
-            <Checkbox style={{ color: "#fff" }}>Remember me</Checkbox>
           </Form.Item>
 
           <Form.Item>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <Button type="primary" htmlType="submit">
-                Login
+                Sign Up
               </Button>
-              <Button type="default" onClick={() => navigate("/signup")}>
-                Signup
+              <Button type="default" onClick={() => navigate("/")}>
+                Back to Login
               </Button>
             </div>
           </Form.Item>
@@ -107,4 +110,4 @@ const Login = () => {
   );
 };
 
-export default Login;
+export default Signup;
