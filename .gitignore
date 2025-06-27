@@ -22,4 +22,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Firebase configuration
 firebase.js
+
+# Built files that may contain sensitive data
+index.html
+assets/
+public/assets/
