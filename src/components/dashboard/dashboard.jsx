@@ -95,6 +95,13 @@ const App = () => {
   }, [isCameraActive, isCallModalOpen]);
 
   useEffect(() => {
+    if (isCallInterfaceOpen && localVideoRef.current && localStreamRef.current) {
+      console.log("Call interface opened - assigning local video");
+      localVideoRef.current.srcObject = localStreamRef.current;
+    }
+  }, [isCallInterfaceOpen]);
+
+  useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
     });
@@ -291,6 +298,33 @@ const App = () => {
     }
   };
 
+  const checkVideoAssignments = () => {
+    console.log("=== Video Element Assignments ===");
+    
+    if (localVideoRef.current) {
+      console.log("Local video srcObject:", localVideoRef.current.srcObject);
+      if (localVideoRef.current.srcObject) {
+        console.log("Local video stream ID:", localVideoRef.current.srcObject.id);
+        console.log("Local video stream active:", localVideoRef.current.srcObject.active);
+      }
+    }
+    
+    if (remoteVideoRef.current) {
+      console.log("Remote video srcObject:", remoteVideoRef.current.srcObject);
+      if (remoteVideoRef.current.srcObject) {
+        console.log("Remote video stream ID:", remoteVideoRef.current.srcObject.id);
+        console.log("Remote video stream active:", remoteVideoRef.current.srcObject.active);
+      }
+    }
+    
+    if (localStreamRef.current) {
+      console.log("Local stream ref ID:", localStreamRef.current.id);
+      console.log("Local stream ref active:", localStreamRef.current.active);
+    }
+    
+    console.log("========================");
+  };
+
   const setRemoteVideoVolume = (volume) => {
     setRemoteVolume(volume);
     if (remoteVideoRef.current) {
@@ -332,11 +366,16 @@ const App = () => {
 
       pc.ontrack = (event) => {
         console.log("Received remote track:", event.streams[0]);
+        console.log("Remote stream active:", event.streams[0].active);
+        console.log("Remote stream tracks:", event.streams[0].getTracks());
+        
         if (remoteVideoRef.current && event.streams[0]) {
+          console.log("Assigning remote stream to remote video element");
           remoteVideoRef.current.srcObject = event.streams[0];
           remoteVideoRef.current.muted = false;
           remoteVideoRef.current.volume = remoteVolume;
           setRemoteVideoAvailable(true);
+          console.log("Remote video element srcObject set:", remoteVideoRef.current.srcObject);
         }
       };
 
@@ -397,11 +436,16 @@ const App = () => {
 
       pc.ontrack = (event) => {
         console.log("Received remote track:", event.streams[0]);
+        console.log("Remote stream active:", event.streams[0].active);
+        console.log("Remote stream tracks:", event.streams[0].getTracks());
+        
         if (remoteVideoRef.current && event.streams[0]) {
+          console.log("Assigning remote stream to remote video element");
           remoteVideoRef.current.srcObject = event.streams[0];
           remoteVideoRef.current.muted = false;
           remoteVideoRef.current.volume = remoteVolume;
           setRemoteVideoAvailable(true);
+          console.log("Remote video element srcObject set:", remoteVideoRef.current.srcObject);
         }
       };
 
@@ -676,6 +720,14 @@ const App = () => {
               icon="🎤"
             >
               Test Microphone
+            </Button>
+            <Button 
+              type="default"
+              size="large" 
+              onClick={checkVideoAssignments}
+              icon="🔍"
+            >
+              Check Video
             </Button>
             <Button danger size="large" onClick={endCall}>
               End Call
