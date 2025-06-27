@@ -294,6 +294,35 @@ const App = () => {
     }
   };
 
+  const playRemoteVideo = () => {
+    if (remoteVideoRef.current) {
+      console.log("Manually playing remote video...");
+      remoteVideoRef.current.play().catch(e => {
+        console.error("Manual play error:", e);
+        notification.error({
+          message: "Playback Error",
+          description: "Could not play remote video. Check browser permissions.",
+        });
+      });
+    }
+  };
+
+  const checkRemoteVideoState = () => {
+    if (remoteVideoRef.current) {
+      console.log("=== Remote Video State ===");
+      console.log("Ready state:", remoteVideoRef.current.readyState);
+      console.log("Network state:", remoteVideoRef.current.networkState);
+      console.log("Current time:", remoteVideoRef.current.currentTime);
+      console.log("Duration:", remoteVideoRef.current.duration);
+      console.log("Paused:", remoteVideoRef.current.paused);
+      console.log("Ended:", remoteVideoRef.current.ended);
+      console.log("Muted:", remoteVideoRef.current.muted);
+      console.log("Volume:", remoteVideoRef.current.volume);
+      console.log("SrcObject:", remoteVideoRef.current.srcObject);
+      console.log("========================");
+    }
+  };
+
   const handleAnswerCall = async () => {
     try {
       await setupLocalCamera();
@@ -375,6 +404,14 @@ const App = () => {
             console.log("Remote video can play with audio");
             remoteVideoRef.current.muted = false;
           };
+
+          // Force play the video
+          setTimeout(() => {
+            if (remoteVideoRef.current) {
+              console.log("Forcing remote video to play...");
+              remoteVideoRef.current.play().catch(e => console.error("Forced play error:", e));
+            }
+          }, 1000);
         }
       };
 
@@ -481,6 +518,14 @@ const App = () => {
             console.log("Remote video can play with audio");
             remoteVideoRef.current.muted = false;
           };
+
+          // Force play the video
+          setTimeout(() => {
+            if (remoteVideoRef.current) {
+              console.log("Forcing remote video to play...");
+              remoteVideoRef.current.play().catch(e => console.error("Forced play error:", e));
+            }
+          }, 1000);
         }
       };
 
@@ -692,6 +737,10 @@ const App = () => {
                 onCanPlay={() => console.log("Remote video can play")}
                 onPlay={() => console.log("Remote video started playing")}
                 onError={(e) => console.error("Remote video error:", e)}
+                onLoadStart={() => console.log("Remote video load started")}
+                onLoadedData={() => console.log("Remote video loaded data")}
+                onWaiting={() => console.log("Remote video waiting")}
+                onStalled={() => console.log("Remote video stalled")}
               />
               {!remoteVideoAvailable && (
                 <div style={{
@@ -751,6 +800,22 @@ const App = () => {
               icon="🔊"
             >
               Test Audio
+            </Button>
+            <Button 
+              type="default"
+              size="large" 
+              onClick={playRemoteVideo}
+              icon="▶️"
+            >
+              Play Video
+            </Button>
+            <Button 
+              type="default"
+              size="large" 
+              onClick={checkRemoteVideoState}
+              icon="🔍"
+            >
+              Debug Video
             </Button>
             <Button danger size="large" onClick={endCall}>
               End Call
