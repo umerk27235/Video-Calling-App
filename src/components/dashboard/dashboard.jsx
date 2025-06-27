@@ -59,6 +59,9 @@ const App = () => {
   const [incomingCall, setIncomingCall] = useState(null);
   const [isIncomingCallModalOpen, setIsIncomingCallModalOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
+  const [isAudioMuted, setIsAudioMuted] = useState(false);
+  const [isVideoOff, setIsVideoOff] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState("disconnected");
 
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
@@ -93,6 +96,13 @@ const App = () => {
       previewVideoRef.current.srcObject = localStreamRef.current;
     }
   }, [isCameraActive, isCallModalOpen]);
+
+  useEffect(() => {
+    if (isCallInterfaceOpen && localVideoRef.current && localStreamRef.current) {
+      console.log("Call interface opened - assigning local video");
+      localVideoRef.current.srcObject = localStreamRef.current;
+    }
+  }, [isCallInterfaceOpen]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -183,6 +193,9 @@ const App = () => {
     setIsInCall(false);
     setIsCameraActive(false);
     setIsCallInterfaceOpen(false);
+    setIsAudioMuted(false);
+    setIsVideoOff(false);
+    setConnectionStatus("disconnected");
 
     if (incomingCall?.callId) {
       updateCallStatus(incomingCall.callId, "ended");
@@ -198,6 +211,26 @@ const App = () => {
     }
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+  };
+
+  const toggleAudio = () => {
+    if (localStreamRef.current) {
+      const audioTrack = localStreamRef.current.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.enabled = !audioTrack.enabled;
+        setIsAudioMuted(!audioTrack.enabled);
+      }
+    }
+  };
+
+  const toggleVideo = () => {
+    if (localStreamRef.current) {
+      const videoTrack = localStreamRef.current.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.enabled = !videoTrack.enabled;
+        setIsVideoOff(!videoTrack.enabled);
+      }
+    }
   };
 
   const handleAnswerCall = async () => {
@@ -232,9 +265,20 @@ const App = () => {
         }
       };
 
+      pc.onconnectionstatechange = () => {
+        console.log("Answer call - Connection state:", pc.connectionState);
+        setConnectionStatus(pc.connectionState);
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        console.log("Answer call - ICE connection state:", pc.iceConnectionState);
+      };
+
       pc.ontrack = (event) => {
+        console.log("Answer call - Received remote track:", event.streams[0]);
         if (remoteVideoRef.current) {
           remoteVideoRef.current.srcObject = event.streams[0];
+          remoteVideoRef.current.muted = false;
         }
       };
 
@@ -292,9 +336,20 @@ const App = () => {
         }
       };
 
+      pc.onconnectionstatechange = () => {
+        console.log("Connection state:", pc.connectionState);
+        setConnectionStatus(pc.connectionState);
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        console.log("ICE connection state:", pc.iceConnectionState);
+      };
+
       pc.ontrack = (event) => {
+        console.log("Received remote track:", event.streams[0]);
         if (remoteVideoRef.current) {
           remoteVideoRef.current.srcObject = event.streams[0];
+          remoteVideoRef.current.muted = false;
         }
       };
 
@@ -310,11 +365,9 @@ const App = () => {
       setIsCallModalOpen(false);
       setIsCallInterfaceOpen(true);
 
-      setTimeout(() => {
-        if (localVideoRef.current && localStreamRef.current) {
-          localVideoRef.current.srcObject = localStreamRef.current;
-        }
-      }, 100);
+      if (localVideoRef.current && localStreamRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current;
+      }
     } catch (err) {
       notification.error({ message: "Call Failed", description: err.message });
     }
@@ -439,7 +492,7 @@ const App = () => {
 
       <Modal
         open={isCallInterfaceOpen}
-        title="Video Call"
+        title={`Video Call - ${connectionStatus}`}
         footer={null}
         width={800}
         onCancel={endCall}
@@ -448,21 +501,92 @@ const App = () => {
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
-            <video
-              ref={localVideoRef}
-              autoPlay
-              muted
-              playsInline
-              style={{ width: "40%", borderRadius: 8, maxHeight: "300px" }}
-            />
-            <video
-              ref={remoteVideoRef}
-              autoPlay
-              playsInline
-              style={{ width: "40%", borderRadius: 8, maxHeight: "300px" }}
-            />
+            <div style={{ position: "relative", width: "30%" }}>
+              <video
+                ref={localVideoRef}
+                autoPlay
+                muted
+                playsInline
+                style={{ 
+                  width: "100%", 
+                  borderRadius: 8, 
+                  maxHeight: "200px",
+                  border: "2px solid #d9d9d9",
+                  display: isVideoOff ? "none" : "block"
+                }}
+              />
+              {isVideoOff && (
+                <div style={{
+                  width: "100%",
+                  height: "200px",
+                  borderRadius: 8,
+                  border: "2px solid #d9d9d9",
+                  background: "#f0f0f0",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "48px"
+                }}>
+                  📷
+                </div>
+              )}
+              <div style={{
+                position: "absolute",
+                bottom: 8,
+                left: 8,
+                background: "rgba(0,0,0,0.7)",
+                color: "white",
+                padding: "4px 8px",
+                borderRadius: 4,
+                fontSize: "12px"
+              }}>
+                You {isAudioMuted && "🔇"}
+              </div>
+            </div>
+            
+            <div style={{ position: "relative", width: "60%" }}>
+              <video
+                ref={remoteVideoRef}
+                autoPlay
+                playsInline
+                style={{ 
+                  width: "100%", 
+                  borderRadius: 8, 
+                  maxHeight: "400px",
+                  border: "2px solid #1677ff"
+                }}
+              />
+              <div style={{
+                position: "absolute",
+                bottom: 8,
+                left: 8,
+                background: "rgba(0,0,0,0.7)",
+                color: "white",
+                padding: "4px 8px",
+                borderRadius: 4,
+                fontSize: "12px"
+              }}>
+                Remote
+              </div>
+            </div>
           </div>
           <div style={{ display: "flex", justifyContent: "center", gap: 16 }}>
+            <Button 
+              type={isAudioMuted ? "default" : "primary"}
+              size="large" 
+              onClick={toggleAudio}
+              icon={isAudioMuted ? "🔇" : "🔊"}
+            >
+              {isAudioMuted ? "Unmute" : "Mute"}
+            </Button>
+            <Button 
+              type={isVideoOff ? "default" : "primary"}
+              size="large" 
+              onClick={toggleVideo}
+              icon={isVideoOff ? "📷" : "📹"}
+            >
+              {isVideoOff ? "Turn On Video" : "Turn Off Video"}
+            </Button>
             <Button danger size="large" onClick={endCall}>
               End Call
             </Button>
