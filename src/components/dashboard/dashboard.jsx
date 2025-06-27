@@ -98,6 +98,13 @@ const App = () => {
     if (isCallInterfaceOpen && localVideoRef.current && localStreamRef.current) {
       console.log("Call interface opened - assigning local video");
       localVideoRef.current.srcObject = localStreamRef.current;
+      
+      // Explicitly play the local video
+      localVideoRef.current.play().then(() => {
+        console.log("Local video started playing successfully");
+      }).catch(err => {
+        console.error("Failed to play local video:", err);
+      });
     }
   }, [isCallInterfaceOpen]);
 
@@ -325,6 +332,31 @@ const App = () => {
     console.log("========================");
   };
 
+  const forcePlayVideos = () => {
+    console.log("Forcing video playback...");
+    
+    if (localVideoRef.current && localVideoRef.current.srcObject) {
+      localVideoRef.current.play().then(() => {
+        console.log("Local video forced to play");
+      }).catch(err => {
+        console.error("Failed to force play local video:", err);
+      });
+    }
+    
+    if (remoteVideoRef.current && remoteVideoRef.current.srcObject) {
+      remoteVideoRef.current.play().then(() => {
+        console.log("Remote video forced to play");
+      }).catch(err => {
+        console.error("Failed to force play remote video:", err);
+      });
+    }
+    
+    notification.info({
+      message: "Video Playback",
+      description: "Attempted to force play both videos. Check console for results.",
+    });
+  };
+
   const setRemoteVideoVolume = (volume) => {
     setRemoteVolume(volume);
     if (remoteVideoRef.current) {
@@ -376,6 +408,13 @@ const App = () => {
           remoteVideoRef.current.volume = remoteVolume;
           setRemoteVideoAvailable(true);
           console.log("Remote video element srcObject set:", remoteVideoRef.current.srcObject);
+          
+          // Explicitly play the remote video
+          remoteVideoRef.current.play().then(() => {
+            console.log("Remote video started playing successfully");
+          }).catch(err => {
+            console.error("Failed to play remote video:", err);
+          });
         }
       };
 
@@ -446,6 +485,13 @@ const App = () => {
           remoteVideoRef.current.volume = remoteVolume;
           setRemoteVideoAvailable(true);
           console.log("Remote video element srcObject set:", remoteVideoRef.current.srcObject);
+          
+          // Explicitly play the remote video
+          remoteVideoRef.current.play().then(() => {
+            console.log("Remote video started playing successfully");
+          }).catch(err => {
+            console.error("Failed to play remote video:", err);
+          });
         }
       };
 
@@ -728,6 +774,14 @@ const App = () => {
               icon="🔍"
             >
               Check Video
+            </Button>
+            <Button 
+              type="default"
+              size="large" 
+              onClick={forcePlayVideos}
+              icon="🎥"
+            >
+              Force Play Videos
             </Button>
             <Button danger size="large" onClick={endCall}>
               End Call
