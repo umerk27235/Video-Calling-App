@@ -3,14 +3,22 @@ import "./App.css";
 import Login from "./components/Login/login";
 import Dashboard from "./components/dashboard/dashboard";
 import Signup from "./components/Login/signup";
+import ProtectedRoute from "../src/components/Protected Route/ProtectedRoute"; // 👈 import the wrapper
 
 function App() {
   return (
     <div>
       <Routes>
-        <Route exact path="/" element={<Login />} />
+        <Route path="/" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
-        <Route exact path="/dashboard" element={<Dashboard />} />
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          }
+        />
       </Routes>
     </div>
   );

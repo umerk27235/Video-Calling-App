@@ -9,9 +9,9 @@ const Tablelisting = ({ data, onDeleteClick }) => {
       render: (text) => <a>{text}</a>,
     },
     {
-      title: "Age",
-      dataIndex: "age",
-      key: "age",
+      title: "Email",
+      dataIndex: "email",
+      key: "email",
     },
     {
       title: "Address",
@@ -43,7 +43,6 @@ const Tablelisting = ({ data, onDeleteClick }) => {
       key: "action",
       render: (_, record) => (
         <Space size="middle">
-          <a>Make a Call</a>
           <a onClick={() => onDeleteClick(record)} style={{ color: "red" }}>
             Delete
           </a>

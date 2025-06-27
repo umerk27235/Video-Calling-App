@@ -31,11 +31,14 @@ const AddContactModal = ({ open, onClose, submit }) => {
         </Form.Item>
 
         <Form.Item
-          label="Age"
-          name="age"
-          rules={[{ required: true, message: "Please enter age" }]}
+          label="Email"
+          name="email"
+          rules={[
+            { required: true, message: "Please enter an email" },
+            { type: "email", message: "Please enter a valid email" },
+          ]}
         >
-          <InputNumber style={{ width: "100%" }} placeholder="Enter age" />
+          <Input placeholder="Enter email" />
         </Form.Item>
 
         <Form.Item
