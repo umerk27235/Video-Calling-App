@@ -110,10 +110,21 @@ const App = () => {
   useEffect(() => {
     if (isCallInterfaceOpen && remoteVideoRef.current) {
       console.log("Call interface opened - initializing remote video element");
+      remoteVideoRef.current.pause();
+      remoteVideoRef.current.removeAttribute('src');
+      remoteVideoRef.current.load();
       remoteVideoRef.current.srcObject = null;
       remoteVideoRef.current.muted = false;
       remoteVideoRef.current.autoplay = true;
       remoteVideoRef.current.playsInline = true;
+      
+      remoteVideoRef.current.onloadedmetadata = () => {
+        console.log("Remote video metadata loaded during initialization");
+      };
+      
+      remoteVideoRef.current.oncanplay = () => {
+        console.log("Remote video can play during initialization");
+      };
     }
   }, [isCallInterfaceOpen]);
 
@@ -297,13 +308,23 @@ const App = () => {
   const playRemoteVideo = () => {
     if (remoteVideoRef.current) {
       console.log("Manually playing remote video...");
-      remoteVideoRef.current.play().catch(e => {
-        console.error("Manual play error:", e);
-        notification.error({
-          message: "Playback Error",
-          description: "Could not play remote video. Check browser permissions.",
+      
+      // Check if the video is ready to play
+      if (remoteVideoRef.current.readyState >= 2) { // HAVE_CURRENT_DATA
+        remoteVideoRef.current.play().catch(e => {
+          console.error("Manual play error:", e);
+          notification.error({
+            message: "Playback Error",
+            description: "Could not play remote video. Check browser permissions.",
+          });
         });
-      });
+      } else {
+        console.log("Video not ready to play. Ready state:", remoteVideoRef.current.readyState);
+        notification.warning({
+          message: "Video Not Ready",
+          description: "Video is still loading. Please wait a moment and try again.",
+        });
+      }
     }
   };
 
@@ -319,6 +340,28 @@ const App = () => {
       console.log("Muted:", remoteVideoRef.current.muted);
       console.log("Volume:", remoteVideoRef.current.volume);
       console.log("SrcObject:", remoteVideoRef.current.srcObject);
+      
+      // Check MediaStream health
+      if (remoteVideoRef.current.srcObject) {
+        const stream = remoteVideoRef.current.srcObject;
+        console.log("=== MediaStream Health ===");
+        console.log("Stream active:", stream.active);
+        console.log("Stream id:", stream.id);
+        console.log("Audio tracks:", stream.getAudioTracks());
+        console.log("Video tracks:", stream.getVideoTracks());
+        console.log("Total tracks:", stream.getTracks().length);
+        
+        stream.getTracks().forEach((track, index) => {
+          console.log(`Track ${index}:`, {
+            kind: track.kind,
+            enabled: track.enabled,
+            muted: track.muted,
+            readyState: track.readyState,
+            id: track.id
+          });
+        });
+        console.log("========================");
+      }
       console.log("========================");
     }
   };
@@ -380,6 +423,13 @@ const App = () => {
         
         if (remoteVideoRef.current && event.streams[0]) {
           const remoteStream = event.streams[0];
+          
+          // Reset the video element first
+          remoteVideoRef.current.pause();
+          remoteVideoRef.current.removeAttribute('src');
+          remoteVideoRef.current.load();
+          
+          // Then assign the new stream
           remoteVideoRef.current.srcObject = remoteStream;
           remoteVideoRef.current.muted = false;
           remoteVideoRef.current.volume = remoteVolume;
@@ -393,7 +443,7 @@ const App = () => {
             track.enabled = true;
           });
           
-          // Ensure the video loads and plays with audio
+          // Wait for the video to be ready before playing
           remoteVideoRef.current.onloadedmetadata = () => {
             console.log("Remote video metadata loaded");
             remoteVideoRef.current.play().catch(e => console.error("Remote video play error:", e));
@@ -404,14 +454,6 @@ const App = () => {
             console.log("Remote video can play with audio");
             remoteVideoRef.current.muted = false;
           };
-
-          // Force play the video
-          setTimeout(() => {
-            if (remoteVideoRef.current) {
-              console.log("Forcing remote video to play...");
-              remoteVideoRef.current.play().catch(e => console.error("Forced play error:", e));
-            }
-          }, 1000);
         }
       };
 
@@ -494,6 +536,13 @@ const App = () => {
         
         if (remoteVideoRef.current && event.streams[0]) {
           const remoteStream = event.streams[0];
+          
+          // Reset the video element first
+          remoteVideoRef.current.pause();
+          remoteVideoRef.current.removeAttribute('src');
+          remoteVideoRef.current.load();
+          
+          // Then assign the new stream
           remoteVideoRef.current.srcObject = remoteStream;
           remoteVideoRef.current.muted = false;
           remoteVideoRef.current.volume = remoteVolume;
@@ -507,7 +556,7 @@ const App = () => {
             track.enabled = true;
           });
           
-          // Ensure the video loads and plays with audio
+          // Wait for the video to be ready before playing
           remoteVideoRef.current.onloadedmetadata = () => {
             console.log("Remote video metadata loaded");
             remoteVideoRef.current.play().catch(e => console.error("Remote video play error:", e));
@@ -518,14 +567,6 @@ const App = () => {
             console.log("Remote video can play with audio");
             remoteVideoRef.current.muted = false;
           };
-
-          // Force play the video
-          setTimeout(() => {
-            if (remoteVideoRef.current) {
-              console.log("Forcing remote video to play...");
-              remoteVideoRef.current.play().catch(e => console.error("Forced play error:", e));
-            }
-          }, 1000);
         }
       };
 
