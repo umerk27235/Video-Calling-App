@@ -89,44 +89,10 @@ const App = () => {
     if (localVideoRef.current && localStreamRef.current && isCameraActive) {
       localVideoRef.current.srcObject = localStreamRef.current;
     }
-  }, [isCameraActive]);
-
-  useEffect(() => {
-    if (localVideoRef.current && localStreamRef.current && isCameraActive) {
-      localVideoRef.current.srcObject = localStreamRef.current;
-    }
     if (previewVideoRef.current && localStreamRef.current && isCameraActive) {
       previewVideoRef.current.srcObject = localStreamRef.current;
     }
   }, [isCameraActive, isCallModalOpen]);
-
-  useEffect(() => {
-    if (isCallInterfaceOpen && localVideoRef.current && localStreamRef.current) {
-      console.log("Call interface opened - assigning local video");
-      localVideoRef.current.srcObject = localStreamRef.current;
-    }
-  }, [isCallInterfaceOpen]);
-
-  useEffect(() => {
-    if (isCallInterfaceOpen && remoteVideoRef.current) {
-      console.log("Call interface opened - initializing remote video element");
-      remoteVideoRef.current.pause();
-      remoteVideoRef.current.removeAttribute('src');
-      remoteVideoRef.current.load();
-      remoteVideoRef.current.srcObject = null;
-      remoteVideoRef.current.muted = false;
-      remoteVideoRef.current.autoplay = true;
-      remoteVideoRef.current.playsInline = true;
-      
-      remoteVideoRef.current.onloadedmetadata = () => {
-        console.log("Remote video metadata loaded during initialization");
-      };
-      
-      remoteVideoRef.current.oncanplay = () => {
-        console.log("Remote video can play during initialization");
-      };
-    }
-  }, [isCallInterfaceOpen]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -202,12 +168,6 @@ const App = () => {
       console.log("Local audio tracks:", stream.getAudioTracks());
       console.log("Local video tracks:", stream.getVideoTracks());
       
-      // Ensure audio tracks are enabled
-      stream.getAudioTracks().forEach(track => {
-        console.log("Local audio track enabled:", track.enabled);
-        track.enabled = true;
-      });
-      
       localStreamRef.current = stream;
       setIsCameraActive(true);
       if (localVideoRef.current) {
@@ -270,61 +230,63 @@ const App = () => {
   };
 
   const testAudio = () => {
-    if (remoteVideoRef.current) {
-      console.log("Testing audio playback...");
-      console.log("Remote video muted:", remoteVideoRef.current.muted);
-      console.log("Remote video volume:", remoteVideoRef.current.volume);
-      console.log("Remote video srcObject:", remoteVideoRef.current.srcObject);
-      
-      // Try to play a test sound
-      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      const oscillator = audioContext.createOscillator();
-      const gainNode = audioContext.createGain();
-      
-      oscillator.connect(gainNode);
-      gainNode.connect(audioContext.destination);
-      
-      oscillator.frequency.setValueAtTime(440, audioContext.currentTime);
-      gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
-      
-      oscillator.start();
-      oscillator.stop(audioContext.currentTime + 0.5);
-      
-      notification.info({
-        message: "Audio Test",
-        description: "If you heard a beep, audio is working. Check console for details.",
-      });
-    }
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    oscillator.frequency.setValueAtTime(440, audioContext.currentTime);
+    gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+    
+    oscillator.start();
+    oscillator.stop(audioContext.currentTime + 0.5);
+    
+    notification.info({
+      message: "Audio Test",
+      description: "If you heard a beep, audio is working.",
+    });
   };
 
-  const enableAudio = () => {
-    if (remoteVideoRef.current) {
-      console.log("Enabling audio for remote video...");
-      
-      // Force enable audio
-      remoteVideoRef.current.muted = false;
-      remoteVideoRef.current.volume = remoteVolume;
-      
-      // Check if there's a MediaStream
-      if (remoteVideoRef.current.srcObject) {
-        const stream = remoteVideoRef.current.srcObject;
-        const audioTracks = stream.getAudioTracks();
+  const testLocalMicrophone = () => {
+    if (localStreamRef.current) {
+      const audioTracks = localStreamRef.current.getAudioTracks();
+      if (audioTracks.length > 0) {
+        // Create an audio element to play the local stream
+        const audioElement = document.createElement('audio');
+        audioElement.srcObject = localStreamRef.current;
+        audioElement.muted = false;
+        audioElement.volume = 0.5; // Lower volume to avoid feedback
         
-        console.log("Audio tracks found:", audioTracks.length);
-        audioTracks.forEach((track, index) => {
-          console.log(`Enabling audio track ${index}:`, track.enabled);
-          track.enabled = true;
+        // Play for 5 seconds then stop
+        audioElement.play().then(() => {
+          notification.success({
+            message: "Microphone Test",
+            description: "You should hear yourself for 5 seconds. Check if your microphone is working.",
+          });
+          
+          setTimeout(() => {
+            audioElement.pause();
+            audioElement.srcObject = null;
+          }, 5000);
+        }).catch(err => {
+          console.error("Microphone test error:", err);
+          notification.error({
+            message: "Microphone Test Failed",
+            description: "Could not play microphone audio. Check permissions.",
+          });
+        });
+      } else {
+        notification.warning({
+          message: "No Microphone",
+          description: "No microphone detected. Please check your device.",
         });
       }
-      
-      // Try to play the video to trigger audio
-      remoteVideoRef.current.play().catch(e => {
-        console.error("Audio enable play error:", e);
-      });
-      
-      notification.success({
-        message: "Audio Enabled",
-        description: "Audio has been enabled for the remote video.",
+    } else {
+      notification.warning({
+        message: "No Local Stream",
+        description: "Please start your camera first to test microphone.",
       });
     }
   };
@@ -333,101 +295,6 @@ const App = () => {
     setRemoteVolume(volume);
     if (remoteVideoRef.current) {
       remoteVideoRef.current.volume = volume;
-      console.log("Set remote video volume to:", volume);
-    }
-  };
-
-  const playRemoteVideo = () => {
-    if (remoteVideoRef.current) {
-      console.log("Manually playing remote video...");
-      
-      // Check if the video is ready to play
-      if (remoteVideoRef.current.readyState >= 2) { // HAVE_CURRENT_DATA
-        remoteVideoRef.current.play().catch(e => {
-          console.error("Manual play error:", e);
-          notification.error({
-            message: "Playback Error",
-            description: "Could not play remote video. Check browser permissions.",
-          });
-        });
-      } else {
-        console.log("Video not ready to play. Ready state:", remoteVideoRef.current.readyState);
-        
-        // Try to force play anyway for WebRTC streams
-        remoteVideoRef.current.play().catch(e => {
-          console.error("Force play error:", e);
-          notification.warning({
-            message: "Video Not Ready",
-            description: "Video is still loading. Please wait a moment and try again.",
-          });
-        });
-      }
-    }
-  };
-
-  const checkRemoteVideoState = () => {
-    if (remoteVideoRef.current) {
-      console.log("=== Remote Video State ===");
-      console.log("Ready state:", remoteVideoRef.current.readyState);
-      console.log("Network state:", remoteVideoRef.current.networkState);
-      console.log("Current time:", remoteVideoRef.current.currentTime);
-      console.log("Duration:", remoteVideoRef.current.duration);
-      console.log("Paused:", remoteVideoRef.current.paused);
-      console.log("Ended:", remoteVideoRef.current.ended);
-      console.log("Muted:", remoteVideoRef.current.muted);
-      console.log("Volume:", remoteVideoRef.current.volume);
-      console.log("SrcObject:", remoteVideoRef.current.srcObject);
-      
-      // Check MediaStream health
-      if (remoteVideoRef.current.srcObject) {
-        const stream = remoteVideoRef.current.srcObject;
-        console.log("=== MediaStream Health ===");
-        console.log("Stream active:", stream.active);
-        console.log("Stream id:", stream.id);
-        console.log("Audio tracks:", stream.getAudioTracks());
-        console.log("Video tracks:", stream.getVideoTracks());
-        console.log("Total tracks:", stream.getTracks().length);
-        
-        stream.getTracks().forEach((track, index) => {
-          console.log(`Track ${index}:`, {
-            kind: track.kind,
-            enabled: track.enabled,
-            muted: track.muted,
-            readyState: track.readyState,
-            id: track.id
-          });
-        });
-        console.log("========================");
-      }
-      console.log("========================");
-    }
-  };
-
-  const checkAudioState = () => {
-    if (remoteVideoRef.current) {
-      console.log("=== Audio State Check ===");
-      console.log("Video muted:", remoteVideoRef.current.muted);
-      console.log("Video volume:", remoteVideoRef.current.volume);
-      console.log("Video readyState:", remoteVideoRef.current.readyState);
-      
-      if (remoteVideoRef.current.srcObject) {
-        const stream = remoteVideoRef.current.srcObject;
-        const audioTracks = stream.getAudioTracks();
-        
-        console.log("Audio tracks count:", audioTracks.length);
-        audioTracks.forEach((track, index) => {
-          console.log(`Audio track ${index}:`, {
-            enabled: track.enabled,
-            muted: track.muted,
-            readyState: track.readyState,
-            id: track.id,
-            label: track.label
-          });
-        });
-      } else {
-        console.log("No MediaStream assigned to video element");
-      }
-      console.log("========================");
     }
   };
 
@@ -441,17 +308,9 @@ const App = () => {
       pcRef.current = pc;
 
       const localStream = localStreamRef.current;
-      console.log("Adding tracks to peer connection:", localStream.getTracks());
-      localStream
-        .getTracks()
-        .forEach((track) => {
-          console.log("Adding track to peer connection:", track.kind, track.enabled);
-          pc.addTrack(track, localStream);
-        });
+      localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
 
-      await pc.setRemoteDescription(
-        new RTCSessionDescription(incomingCall.offer)
-      );
+      await pc.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
 
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -468,93 +327,16 @@ const App = () => {
       };
 
       pc.onconnectionstatechange = () => {
-        console.log("Answer call - Connection state:", pc.connectionState);
         setConnectionStatus(pc.connectionState);
       };
 
-      pc.oniceconnectionstatechange = () => {
-        console.log("Answer call - ICE connection state:", pc.iceConnectionState);
-      };
-
-      pc.onsignalingstatechange = () => {
-        console.log("Answer call - Signaling state:", pc.signalingState);
-      };
-
       pc.ontrack = (event) => {
-        console.log("Answer call - Received remote track:", event.streams[0]);
-        console.log("Remote stream tracks:", event.streams[0].getTracks());
-        console.log("Track kind:", event.track.kind);
-        console.log("Track enabled:", event.track.enabled);
-        
+        console.log("Received remote track:", event.streams[0]);
         if (remoteVideoRef.current && event.streams[0]) {
-          const remoteStream = event.streams[0];
-          
-          // Create a new video element to ensure clean state
-          const newVideo = document.createElement('video');
-          newVideo.autoplay = true;
-          newVideo.playsInline = true;
-          newVideo.muted = false;
-          newVideo.volume = remoteVolume;
-          newVideo.style.width = '100%';
-          newVideo.style.borderRadius = '8px';
-          newVideo.style.maxHeight = '400px';
-          newVideo.style.border = '2px solid #1677ff';
-          
-          // Audio-specific configurations
-          newVideo.preload = 'auto';
-          newVideo.crossOrigin = 'anonymous';
-          
-          // Set up event listeners
-          newVideo.onloadedmetadata = () => {
-            console.log("New video metadata loaded");
-            // Ensure audio is enabled after metadata loads
-            newVideo.muted = false;
-            newVideo.volume = remoteVolume;
-            newVideo.play().catch(e => console.error("New video play error:", e));
-          };
-          
-          newVideo.oncanplay = () => {
-            console.log("New video can play");
-            // Double-check audio settings
-            newVideo.muted = false;
-            newVideo.volume = remoteVolume;
-          };
-          
-          newVideo.onplay = () => {
-            console.log("New video started playing");
-            // Final audio check when video starts playing
-            newVideo.muted = false;
-            newVideo.volume = remoteVolume;
-          };
-          
-          // Audio-specific event listeners
-          newVideo.oncanplaythrough = () => {
-            console.log("New video can play through with audio");
-            newVideo.muted = false;
-          };
-          
-          newVideo.onvolumechange = () => {
-            console.log("Video volume changed to:", newVideo.volume);
-          };
-          
-          // Assign the stream to the new video element
-          newVideo.srcObject = remoteStream;
-          
-          // Replace the old video element
-          const container = remoteVideoRef.current.parentElement;
-          container.removeChild(remoteVideoRef.current);
-          container.appendChild(newVideo);
-          remoteVideoRef.current = newVideo;
-          
+          remoteVideoRef.current.srcObject = event.streams[0];
+          remoteVideoRef.current.muted = false;
+          remoteVideoRef.current.volume = remoteVolume;
           setRemoteVideoAvailable(true);
-          
-          // Explicitly enable audio
-          const audioTracks = remoteStream.getAudioTracks();
-          console.log("Remote audio tracks:", audioTracks);
-          audioTracks.forEach(track => {
-            console.log("Audio track enabled:", track.enabled);
-            track.enabled = true;
-          });
         }
       };
 
@@ -592,23 +374,16 @@ const App = () => {
       pcRef.current = pc;
 
       const localStream = localStreamRef.current;
-      console.log("Adding tracks to peer connection (caller):", localStream.getTracks());
-      localStream
-        .getTracks()
-        .forEach((track) => {
-          console.log("Adding track to peer connection (caller):", track.kind, track.enabled);
-          pc.addTrack(track, localStream);
-        });
+      localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      const { callDocRef, offerCandidates, answerCandidates } =
-        await createCall(
-          offer,
-          calleeEmail,
-          currentUser?.displayName || currentUser?.email
-        );
+      const { callDocRef, offerCandidates, answerCandidates } = await createCall(
+        offer,
+        calleeEmail,
+        currentUser?.displayName || currentUser?.email
+      );
 
       pc.onicecandidate = (event) => {
         if (event.candidate) {
@@ -617,93 +392,16 @@ const App = () => {
       };
 
       pc.onconnectionstatechange = () => {
-        console.log("Connection state:", pc.connectionState);
         setConnectionStatus(pc.connectionState);
-      };
-
-      pc.oniceconnectionstatechange = () => {
-        console.log("ICE connection state:", pc.iceConnectionState);
-      };
-
-      pc.onsignalingstatechange = () => {
-        console.log("Signaling state:", pc.signalingState);
       };
 
       pc.ontrack = (event) => {
         console.log("Received remote track:", event.streams[0]);
-        console.log("Remote stream tracks:", event.streams[0].getTracks());
-        console.log("Track kind:", event.track.kind);
-        console.log("Track enabled:", event.track.enabled);
-        
         if (remoteVideoRef.current && event.streams[0]) {
-          const remoteStream = event.streams[0];
-          
-          // Create a new video element to ensure clean state
-          const newVideo = document.createElement('video');
-          newVideo.autoplay = true;
-          newVideo.playsInline = true;
-          newVideo.muted = false;
-          newVideo.volume = remoteVolume;
-          newVideo.style.width = '100%';
-          newVideo.style.borderRadius = '8px';
-          newVideo.style.maxHeight = '400px';
-          newVideo.style.border = '2px solid #1677ff';
-          
-          // Audio-specific configurations
-          newVideo.preload = 'auto';
-          newVideo.crossOrigin = 'anonymous';
-          
-          // Set up event listeners
-          newVideo.onloadedmetadata = () => {
-            console.log("New video metadata loaded");
-            // Ensure audio is enabled after metadata loads
-            newVideo.muted = false;
-            newVideo.volume = remoteVolume;
-            newVideo.play().catch(e => console.error("New video play error:", e));
-          };
-          
-          newVideo.oncanplay = () => {
-            console.log("New video can play");
-            // Double-check audio settings
-            newVideo.muted = false;
-            newVideo.volume = remoteVolume;
-          };
-          
-          newVideo.onplay = () => {
-            console.log("New video started playing");
-            // Final audio check when video starts playing
-            newVideo.muted = false;
-            newVideo.volume = remoteVolume;
-          };
-          
-          // Audio-specific event listeners
-          newVideo.oncanplaythrough = () => {
-            console.log("New video can play through with audio");
-            newVideo.muted = false;
-          };
-          
-          newVideo.onvolumechange = () => {
-            console.log("Video volume changed to:", newVideo.volume);
-          };
-          
-          // Assign the stream to the new video element
-          newVideo.srcObject = remoteStream;
-          
-          // Replace the old video element
-          const container = remoteVideoRef.current.parentElement;
-          container.removeChild(remoteVideoRef.current);
-          container.appendChild(newVideo);
-          remoteVideoRef.current = newVideo;
-          
+          remoteVideoRef.current.srcObject = event.streams[0];
+          remoteVideoRef.current.muted = false;
+          remoteVideoRef.current.volume = remoteVolume;
           setRemoteVideoAvailable(true);
-          
-          // Explicitly enable audio
-          const audioTracks = remoteStream.getAudioTracks();
-          console.log("Remote audio tracks:", audioTracks);
-          audioTracks.forEach(track => {
-            console.log("Audio track enabled:", track.enabled);
-            track.enabled = true;
-          });
         }
       };
 
@@ -911,14 +609,6 @@ const App = () => {
                   border: "2px solid #1677ff",
                   display: remoteVideoAvailable ? "block" : "none"
                 }}
-                onLoadedMetadata={() => console.log("Remote video loaded metadata")}
-                onCanPlay={() => console.log("Remote video can play")}
-                onPlay={() => console.log("Remote video started playing")}
-                onError={(e) => console.error("Remote video error:", e)}
-                onLoadStart={() => console.log("Remote video load started")}
-                onLoadedData={() => console.log("Remote video loaded data")}
-                onWaiting={() => console.log("Remote video waiting")}
-                onStalled={() => console.log("Remote video stalled")}
               />
               {!remoteVideoAvailable && (
                 <div style={{
@@ -982,34 +672,10 @@ const App = () => {
             <Button 
               type="default"
               size="large" 
-              onClick={enableAudio}
-              icon="🔊"
+              onClick={testLocalMicrophone}
+              icon="🎤"
             >
-              Enable Audio
-            </Button>
-            <Button 
-              type="default"
-              size="large" 
-              onClick={playRemoteVideo}
-              icon="▶️"
-            >
-              Play Video
-            </Button>
-            <Button 
-              type="default"
-              size="large" 
-              onClick={checkRemoteVideoState}
-              icon="🔍"
-            >
-              Debug Video
-            </Button>
-            <Button 
-              type="default"
-              size="large" 
-              onClick={checkAudioState}
-              icon="🔊"
-            >
-              Check Audio
+              Test Microphone
             </Button>
             <Button danger size="large" onClick={endCall}>
               End Call
