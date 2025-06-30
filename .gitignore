@@ -30,3 +30,5 @@ firebase.js
 index.html
 assets/
 public/assets/
+
+.env
