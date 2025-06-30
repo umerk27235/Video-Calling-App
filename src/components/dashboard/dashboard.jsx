@@ -5,6 +5,7 @@ import {
   UserOutlined,
   VideoCameraOutlined,
   VideoCameraAddOutlined,
+  MessageOutlined,
 } from "@ant-design/icons";
 import {
   Button,
@@ -17,6 +18,7 @@ import {
   Space,
   Slider,
 } from "antd";
+import { useNavigate } from "react-router-dom";
 import Tablelisting from "./listing";
 import AddContactModal from "./addmodal";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
@@ -48,6 +50,7 @@ const items = [
 
 const App = () => {
   theme.useToken();
+  const navigate = useNavigate();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedKey, setSelectedKey] = useState("1");
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -95,16 +98,23 @@ const App = () => {
   }, [isCameraActive, isCallModalOpen]);
 
   useEffect(() => {
-    if (isCallInterfaceOpen && localVideoRef.current && localStreamRef.current) {
+    if (
+      isCallInterfaceOpen &&
+      localVideoRef.current &&
+      localStreamRef.current
+    ) {
       console.log("Call interface opened - assigning local video");
       localVideoRef.current.srcObject = localStreamRef.current;
-      
+
       // Explicitly play the local video
-      localVideoRef.current.play().then(() => {
-        console.log("Local video started playing successfully");
-      }).catch(err => {
-        console.error("Failed to play local video:", err);
-      });
+      localVideoRef.current
+        .play()
+        .then(() => {
+          console.log("Local video started playing successfully");
+        })
+        .catch((err) => {
+          console.error("Failed to play local video:", err);
+        });
     }
   }, [isCallInterfaceOpen]);
 
@@ -177,11 +187,11 @@ const App = () => {
         video: true,
         audio: true,
       });
-      
+
       console.log("Local stream obtained:", stream);
       console.log("Local audio tracks:", stream.getAudioTracks());
       console.log("Local video tracks:", stream.getVideoTracks());
-      
+
       localStreamRef.current = stream;
       setIsCameraActive(true);
       if (localVideoRef.current) {
@@ -244,19 +254,20 @@ const App = () => {
   };
 
   const testAudio = () => {
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const audioContext = new (window.AudioContext ||
+      window.webkitAudioContext)();
     const oscillator = audioContext.createOscillator();
     const gainNode = audioContext.createGain();
-    
+
     oscillator.connect(gainNode);
     gainNode.connect(audioContext.destination);
-    
+
     oscillator.frequency.setValueAtTime(440, audioContext.currentTime);
     gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
-    
+
     oscillator.start();
     oscillator.stop(audioContext.currentTime + 0.5);
-    
+
     notification.info({
       message: "Audio Test",
       description: "If you heard a beep, audio is working.",
@@ -268,29 +279,34 @@ const App = () => {
       const audioTracks = localStreamRef.current.getAudioTracks();
       if (audioTracks.length > 0) {
         // Create an audio element to play the local stream
-        const audioElement = document.createElement('audio');
+        const audioElement = document.createElement("audio");
         audioElement.srcObject = localStreamRef.current;
         audioElement.muted = false;
         audioElement.volume = 0.5; // Lower volume to avoid feedback
-        
+
         // Play for 5 seconds then stop
-        audioElement.play().then(() => {
-          notification.success({
-            message: "Microphone Test",
-            description: "You should hear yourself for 5 seconds. Check if your microphone is working.",
+        audioElement
+          .play()
+          .then(() => {
+            notification.success({
+              message: "Microphone Test",
+              description:
+                "You should hear yourself for 5 seconds. Check if your microphone is working.",
+            });
+
+            setTimeout(() => {
+              audioElement.pause();
+              audioElement.srcObject = null;
+            }, 5000);
+          })
+          .catch((err) => {
+            console.error("Microphone test error:", err);
+            notification.error({
+              message: "Microphone Test Failed",
+              description:
+                "Could not play microphone audio. Check permissions.",
+            });
           });
-          
-          setTimeout(() => {
-            audioElement.pause();
-            audioElement.srcObject = null;
-          }, 5000);
-        }).catch(err => {
-          console.error("Microphone test error:", err);
-          notification.error({
-            message: "Microphone Test Failed",
-            description: "Could not play microphone audio. Check permissions.",
-          });
-        });
       } else {
         notification.warning({
           message: "No Microphone",
@@ -307,53 +323,72 @@ const App = () => {
 
   const checkVideoAssignments = () => {
     console.log("=== Video Element Assignments ===");
-    
+
     if (localVideoRef.current) {
       console.log("Local video srcObject:", localVideoRef.current.srcObject);
       if (localVideoRef.current.srcObject) {
-        console.log("Local video stream ID:", localVideoRef.current.srcObject.id);
-        console.log("Local video stream active:", localVideoRef.current.srcObject.active);
+        console.log(
+          "Local video stream ID:",
+          localVideoRef.current.srcObject.id
+        );
+        console.log(
+          "Local video stream active:",
+          localVideoRef.current.srcObject.active
+        );
       }
     }
-    
+
     if (remoteVideoRef.current) {
       console.log("Remote video srcObject:", remoteVideoRef.current.srcObject);
       if (remoteVideoRef.current.srcObject) {
-        console.log("Remote video stream ID:", remoteVideoRef.current.srcObject.id);
-        console.log("Remote video stream active:", remoteVideoRef.current.srcObject.active);
+        console.log(
+          "Remote video stream ID:",
+          remoteVideoRef.current.srcObject.id
+        );
+        console.log(
+          "Remote video stream active:",
+          remoteVideoRef.current.srcObject.active
+        );
       }
     }
-    
+
     if (localStreamRef.current) {
       console.log("Local stream ref ID:", localStreamRef.current.id);
       console.log("Local stream ref active:", localStreamRef.current.active);
     }
-    
+
     console.log("========================");
   };
 
   const forcePlayVideos = () => {
     console.log("Forcing video playback...");
-    
+
     if (localVideoRef.current && localVideoRef.current.srcObject) {
-      localVideoRef.current.play().then(() => {
-        console.log("Local video forced to play");
-      }).catch(err => {
-        console.error("Failed to force play local video:", err);
-      });
+      localVideoRef.current
+        .play()
+        .then(() => {
+          console.log("Local video forced to play");
+        })
+        .catch((err) => {
+          console.error("Failed to force play local video:", err);
+        });
     }
-    
+
     if (remoteVideoRef.current && remoteVideoRef.current.srcObject) {
-      remoteVideoRef.current.play().then(() => {
-        console.log("Remote video forced to play");
-      }).catch(err => {
-        console.error("Failed to force play remote video:", err);
-      });
+      remoteVideoRef.current
+        .play()
+        .then(() => {
+          console.log("Remote video forced to play");
+        })
+        .catch((err) => {
+          console.error("Failed to force play remote video:", err);
+        });
     }
-    
+
     notification.info({
       message: "Video Playback",
-      description: "Attempted to force play both videos. Check console for results.",
+      description:
+        "Attempted to force play both videos. Check console for results.",
     });
   };
 
@@ -374,9 +409,13 @@ const App = () => {
       pcRef.current = pc;
 
       const localStream = localStreamRef.current;
-      localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+      localStream
+        .getTracks()
+        .forEach((track) => pc.addTrack(track, localStream));
 
-      await pc.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
+      await pc.setRemoteDescription(
+        new RTCSessionDescription(incomingCall.offer)
+      );
 
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -400,21 +439,27 @@ const App = () => {
         console.log("Received remote track:", event.streams[0]);
         console.log("Remote stream active:", event.streams[0].active);
         console.log("Remote stream tracks:", event.streams[0].getTracks());
-        
+
         if (remoteVideoRef.current && event.streams[0]) {
           console.log("Assigning remote stream to remote video element");
           remoteVideoRef.current.srcObject = event.streams[0];
           remoteVideoRef.current.muted = false;
           remoteVideoRef.current.volume = remoteVolume;
           setRemoteVideoAvailable(true);
-          console.log("Remote video element srcObject set:", remoteVideoRef.current.srcObject);
-          
+          console.log(
+            "Remote video element srcObject set:",
+            remoteVideoRef.current.srcObject
+          );
+
           // Explicitly play the remote video
-          remoteVideoRef.current.play().then(() => {
-            console.log("Remote video started playing successfully");
-          }).catch(err => {
-            console.error("Failed to play remote video:", err);
-          });
+          remoteVideoRef.current
+            .play()
+            .then(() => {
+              console.log("Remote video started playing successfully");
+            })
+            .catch((err) => {
+              console.error("Failed to play remote video:", err);
+            });
         }
       };
 
@@ -452,16 +497,19 @@ const App = () => {
       pcRef.current = pc;
 
       const localStream = localStreamRef.current;
-      localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+      localStream
+        .getTracks()
+        .forEach((track) => pc.addTrack(track, localStream));
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      const { callDocRef, offerCandidates, answerCandidates } = await createCall(
-        offer,
-        calleeEmail,
-        currentUser?.displayName || currentUser?.email
-      );
+      const { callDocRef, offerCandidates, answerCandidates } =
+        await createCall(
+          offer,
+          calleeEmail,
+          currentUser?.displayName || currentUser?.email
+        );
 
       pc.onicecandidate = (event) => {
         if (event.candidate) {
@@ -477,21 +525,27 @@ const App = () => {
         console.log("Received remote track:", event.streams[0]);
         console.log("Remote stream active:", event.streams[0].active);
         console.log("Remote stream tracks:", event.streams[0].getTracks());
-        
+
         if (remoteVideoRef.current && event.streams[0]) {
           console.log("Assigning remote stream to remote video element");
           remoteVideoRef.current.srcObject = event.streams[0];
           remoteVideoRef.current.muted = false;
           remoteVideoRef.current.volume = remoteVolume;
           setRemoteVideoAvailable(true);
-          console.log("Remote video element srcObject set:", remoteVideoRef.current.srcObject);
-          
+          console.log(
+            "Remote video element srcObject set:",
+            remoteVideoRef.current.srcObject
+          );
+
           // Explicitly play the remote video
-          remoteVideoRef.current.play().then(() => {
-            console.log("Remote video started playing successfully");
-          }).catch(err => {
-            console.error("Failed to play remote video:", err);
-          });
+          remoteVideoRef.current
+            .play()
+            .then(() => {
+              console.log("Remote video started playing successfully");
+            })
+            .catch((err) => {
+              console.error("Failed to play remote video:", err);
+            });
         }
       };
 
@@ -554,6 +608,7 @@ const App = () => {
                     Add Contact
                   </Button>
                   <Button
+                    disabled
                     icon={<VideoCameraAddOutlined />}
                     onClick={() => {
                       setIsCallModalOpen(true);
@@ -561,6 +616,13 @@ const App = () => {
                     }}
                   >
                     Make a Call
+                  </Button>
+                  <Button
+                    icon={<MessageOutlined />}
+                    onClick={() => navigate("/chat")}
+                    type="default"
+                  >
+                    Chat
                   </Button>
                   <UserDropdown />
                 </Space>
@@ -649,70 +711,76 @@ const App = () => {
                 autoPlay
                 muted
                 playsInline
-                style={{ 
-                  width: "100%", 
-                  borderRadius: 8, 
+                style={{
+                  width: "100%",
+                  borderRadius: 8,
                   maxHeight: "200px",
                   border: "2px solid #d9d9d9",
-                  display: isVideoOff ? "none" : "block"
+                  display: isVideoOff ? "none" : "block",
                 }}
               />
               {isVideoOff && (
-                <div style={{
-                  width: "100%",
-                  height: "200px",
-                  borderRadius: 8,
-                  border: "2px solid #d9d9d9",
-                  background: "#f0f0f0",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: "48px"
-                }}>
+                <div
+                  style={{
+                    width: "100%",
+                    height: "200px",
+                    borderRadius: 8,
+                    border: "2px solid #d9d9d9",
+                    background: "#f0f0f0",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "48px",
+                  }}
+                >
                   📷
                 </div>
               )}
-              <div style={{
-                position: "absolute",
-                bottom: 8,
-                left: 8,
-                background: "rgba(0,0,0,0.7)",
-                color: "white",
-                padding: "4px 8px",
-                borderRadius: 4,
-                fontSize: "12px"
-              }}>
+              <div
+                style={{
+                  position: "absolute",
+                  bottom: 8,
+                  left: 8,
+                  background: "rgba(0,0,0,0.7)",
+                  color: "white",
+                  padding: "4px 8px",
+                  borderRadius: 4,
+                  fontSize: "12px",
+                }}
+              >
                 You {isAudioMuted && "🔇"}
               </div>
             </div>
-            
+
             <div style={{ position: "relative", width: "60%" }}>
               <video
                 ref={remoteVideoRef}
                 autoPlay
                 playsInline
                 muted={false}
-                style={{ 
-                  width: "100%", 
-                  borderRadius: 8, 
+                style={{
+                  width: "100%",
+                  borderRadius: 8,
                   maxHeight: "400px",
                   border: "2px solid #1677ff",
-                  display: remoteVideoAvailable ? "block" : "none"
+                  display: remoteVideoAvailable ? "block" : "none",
                 }}
               />
               {!remoteVideoAvailable && (
-                <div style={{
-                  width: "100%",
-                  height: "400px",
-                  borderRadius: 8,
-                  border: "2px solid #1677ff",
-                  background: "#f0f0f0",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flexDirection: "column",
-                  gap: "8px"
-                }}>
+                <div
+                  style={{
+                    width: "100%",
+                    height: "400px",
+                    borderRadius: 8,
+                    border: "2px solid #1677ff",
+                    background: "#f0f0f0",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexDirection: "column",
+                    gap: "8px",
+                  }}
+                >
                   <div style={{ fontSize: "48px" }}>📹</div>
                   <div>Waiting for remote video...</div>
                   <div style={{ fontSize: "12px", color: "#666" }}>
@@ -720,64 +788,61 @@ const App = () => {
                   </div>
                 </div>
               )}
-              <div style={{
-                position: "absolute",
-                bottom: 8,
-                left: 8,
-                background: "rgba(0,0,0,0.7)",
-                color: "white",
-                padding: "4px 8px",
-                borderRadius: 4,
-                fontSize: "12px"
-              }}>
+              <div
+                style={{
+                  position: "absolute",
+                  bottom: 8,
+                  left: 8,
+                  background: "rgba(0,0,0,0.7)",
+                  color: "white",
+                  padding: "4px 8px",
+                  borderRadius: 4,
+                  fontSize: "12px",
+                }}
+              >
                 Remote
               </div>
             </div>
           </div>
           <div style={{ display: "flex", justifyContent: "center", gap: 16 }}>
-            <Button 
+            <Button
               type={isAudioMuted ? "default" : "primary"}
-              size="large" 
+              size="large"
               onClick={toggleAudio}
               icon={isAudioMuted ? "🔇" : "🔊"}
             >
               {isAudioMuted ? "Unmute" : "Mute"}
             </Button>
-            <Button 
+            <Button
               type={isVideoOff ? "default" : "primary"}
-              size="large" 
+              size="large"
               onClick={toggleVideo}
               icon={isVideoOff ? "📷" : "📹"}
             >
               {isVideoOff ? "Turn On Video" : "Turn Off Video"}
             </Button>
-            <Button 
-              type="default"
-              size="large" 
-              onClick={testAudio}
-              icon="🔊"
-            >
+            <Button type="default" size="large" onClick={testAudio} icon="🔊">
               Test Audio
             </Button>
-            <Button 
+            <Button
               type="default"
-              size="large" 
+              size="large"
               onClick={testLocalMicrophone}
               icon="🎤"
             >
               Test Microphone
             </Button>
-            <Button 
+            <Button
               type="default"
-              size="large" 
+              size="large"
               onClick={checkVideoAssignments}
               icon="🔍"
             >
               Check Video
             </Button>
-            <Button 
+            <Button
               type="default"
-              size="large" 
+              size="large"
               onClick={forcePlayVideos}
               icon="🎥"
             >
@@ -787,7 +852,15 @@ const App = () => {
               End Call
             </Button>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center", marginTop: 8 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              justifyContent: "center",
+              marginTop: 8,
+            }}
+          >
             <span style={{ fontSize: "12px" }}>Volume:</span>
             <Slider
               min={0}
