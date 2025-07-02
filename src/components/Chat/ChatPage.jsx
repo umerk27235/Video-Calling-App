@@ -27,6 +27,11 @@ import {
   MessageOutlined,
   SearchOutlined,
   ArrowLeftOutlined,
+  SmileOutlined,
+  PaperClipOutlined,
+  FileImageOutlined,
+  FileOutlined,
+  PlayCircleOutlined,
 } from "@ant-design/icons";
 import { auth, db } from "../../../firebase";
 import {
@@ -44,6 +49,7 @@ import {
 } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
+import EmojiPicker from "./EmojiPicker";
 import "./ChatPage.css";
 
 const { Content, Sider } = Layout;
@@ -63,6 +69,12 @@ const ChatPage = () => {
   const [newChatEmail, setNewChatEmail] = useState("");
   const [contacts, setContacts] = useState([]);
   const [deletingConversationId, setDeletingConversationId] = useState(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [uploadingFiles, setUploadingFiles] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [imageViewerVisible, setImageViewerVisible] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(null);
+  const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
   const navigate = useNavigate();
 
@@ -97,6 +109,84 @@ const ChatPage = () => {
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
+
+  const handleEmojiSelect = (emoji) => {
+    setNewMessage((prev) => prev + emoji.native);
+    setShowEmojiPicker(false);
+  };
+
+  const handleClickOutside = (event) => {
+    if (showEmojiPicker && !event.target.closest(".message-input-container")) {
+      setShowEmojiPicker(false);
+    }
+  };
+
+  const handleFileSelect = (event) => {
+    const files = Array.from(event.target.files);
+
+    const maxSize = 1 * 1024 * 1024; // 1MB for Base64 storage
+    const maxFiles = 3; // Maximum 3 files at once for Base64
+
+    if (selectedFiles.length + files.length > maxFiles) {
+      message.error(`You can only select up to ${maxFiles} files at once.`);
+      return;
+    }
+
+    const validFiles = files.filter((file) => {
+      if (file.size > maxSize) {
+        message.error(
+          `${file.name} is too large. Maximum size is 1MB for Base64 storage.`
+        );
+        return false;
+      }
+      return true;
+    });
+
+    setSelectedFiles((prev) => [...prev, ...validFiles]);
+  };
+
+  const removeFile = (index) => {
+    setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const getFileIcon = (file) => {
+    if (file.type.startsWith("image/")) {
+      return <FileImageOutlined />;
+    } else if (file.type.startsWith("video/")) {
+      return <PlayCircleOutlined />;
+    } else {
+      return <FileOutlined />;
+    }
+  };
+
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return "0 Bytes";
+    const k = 1024;
+    const sizes = ["Bytes", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+  };
+
+  const handleImageClick = (imageData, fileName) => {
+    setSelectedImage({ data: imageData, name: fileName });
+    setImageViewerVisible(true);
+  };
+
+  const fileToBase64 = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = (error) => reject(error);
+    });
+  };
+
+  useEffect(() => {
+    document.addEventListener("click", handleClickOutside);
+    return () => {
+      document.removeEventListener("click", handleClickOutside);
+    };
+  }, [showEmojiPicker]);
 
   const normalizeEmail = (email) => (email ? email.trim().toLowerCase() : "");
 
@@ -182,9 +272,16 @@ const ChatPage = () => {
   };
 
   const sendMessage = async () => {
-    if (!newMessage.trim() || !selectedConversation) return;
+    if (
+      (!newMessage.trim() && selectedFiles.length === 0) ||
+      !selectedConversation
+    )
+      return;
+
     const messageToSend = newMessage.trim();
     setNewMessage("");
+    setUploadingFiles(true);
+
     try {
       const messagesRef = collection(
         db,
@@ -192,21 +289,63 @@ const ChatPage = () => {
         selectedConversation.id,
         "messages"
       );
-      await addDoc(messagesRef, {
-        text: messageToSend,
+
+      const uploadedFiles = [];
+      if (selectedFiles.length > 0) {
+        for (const file of selectedFiles) {
+          try {
+            const base64Data = await fileToBase64(file);
+
+            uploadedFiles.push({
+              name: file.name,
+              data: base64Data,
+              type: file.type,
+              size: file.size,
+            });
+          } catch (uploadError) {
+            console.error("Error converting file to Base64:", uploadError);
+            message.error(`Failed to process ${file.name}.`);
+            throw uploadError;
+          }
+        }
+      }
+
+      // Create message object
+      const messageData = {
         sender: currentUser.email,
         senderName: currentUser.displayName || currentUser.email,
         timestamp: serverTimestamp(),
-      });
+      };
+
+      if (messageToSend) {
+        messageData.text = messageToSend;
+      }
+
+      if (uploadedFiles.length > 0) {
+        messageData.files = uploadedFiles;
+      }
+
+      await addDoc(messagesRef, messageData);
+
       const conversationRef = doc(db, "conversations", selectedConversation.id);
+      const lastMessageText =
+        messageToSend ||
+        (uploadedFiles.length === 1
+          ? `📎 ${uploadedFiles[0].name}`
+          : `📎 ${uploadedFiles.length} files`);
+
       await updateDoc(conversationRef, {
-        lastMessage: messageToSend,
+        lastMessage: lastMessageText,
         lastMessageTime: serverTimestamp(),
         lastSender: currentUser.email,
       });
+
+      setSelectedFiles([]);
     } catch (error) {
       console.error("Error sending message:", error);
       message.error("Failed to send message");
+    } finally {
+      setUploadingFiles(false);
     }
   };
 
@@ -329,6 +468,48 @@ const ChatPage = () => {
     </Menu>
   );
 
+  const getParticipantNames = () => {
+    if (!selectedConversation || !currentUser) return "";
+    const myEmail = normalizeEmail(currentUser.email);
+    return selectedConversation.participants
+      .filter((email) => normalizeEmail(email) !== myEmail)
+      .map((email) => {
+        const contact = contacts.find(
+          (c) => normalizeEmail(c.email) === normalizeEmail(email)
+        );
+        return contact ? contact.name : email;
+      })
+      .join(", ");
+  };
+
+  const formatLastSeen = (timestamp) => {
+    if (!timestamp) return "";
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const msgDate = new Date(
+      date.getFullYear(),
+      date.getMonth(),
+      date.getDate()
+    );
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    let dayString = date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    });
+    if (msgDate.getTime() === today.getTime()) {
+      dayString = "Today";
+    } else if (msgDate.getTime() === yesterday.getTime()) {
+      dayString = "Yesterday";
+    }
+    const timeString = date.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    return `${dayString}, ${timeString}`;
+  };
+
   return (
     <div className="chat-root">
       <Layout className="chat-layout">
@@ -450,24 +631,29 @@ const ChatPage = () => {
           {selectedConversation ? (
             <>
               <div className="chat-header-main">
-                <div className="chat-header-info">
+                <div className="chat-header-info" style={{ gap: 16 }}>
                   <Avatar size={32} icon={<UserOutlined />} />
                   <div>
-                    <Text strong>{selectedConversation.name}</Text>
-                    <br />
-                    <Text type="secondary" small>
-                      {selectedConversation.participants.join(", ")}
+                    <Text strong style={{ fontSize: 18, display: "block" }}>
+                      {getParticipantNames() || selectedConversation.name}
+                    </Text>
+                    <Text
+                      type="secondary"
+                      style={{
+                        fontSize: 13,
+                        display: "block",
+                        marginBottom: 2,
+                      }}
+                    ></Text>
+                    <Text
+                      type="secondary"
+                      style={{ fontSize: 13, display: "block" }}
+                    >
+                      Last Seen:{" "}
+                      {formatLastSeen(selectedConversation.lastMessageTime)}
                     </Text>
                   </div>
                 </div>
-                <Button
-                  type="primary"
-                  icon={<ArrowLeftOutlined />}
-                  onClick={() => navigate("/dashboard")}
-                  size="small"
-                >
-                  Back to Dashboard
-                </Button>
               </div>
 
               <div className="messages-container">
@@ -485,7 +671,71 @@ const ChatPage = () => {
                           {formatTime(msg.timestamp)}
                         </Text>
                       </div>
-                      <div className="message-text">{msg.text}</div>
+                      {msg.text && (
+                        <div className="message-text">{msg.text}</div>
+                      )}
+                      {msg.files && msg.files.length > 0 && (
+                        <div className="message-files">
+                          {msg.files.map((file, index) => (
+                            <div key={index} className="file-item">
+                              {file.type.startsWith("image/") ? (
+                                <div className="image-file">
+                                  <img
+                                    src={file.data}
+                                    alt={file.name}
+                                    onClick={() =>
+                                      handleImageClick(file.data, file.name)
+                                    }
+                                    style={{
+                                      cursor: "pointer",
+                                      maxWidth: "200px",
+                                      maxHeight: "200px",
+                                      borderRadius: "8px",
+                                    }}
+                                  />
+                                  <div className="file-info">
+                                    <Text
+                                      type="secondary"
+                                      style={{ fontSize: "12px" }}
+                                    >
+                                      {file.name} ({formatFileSize(file.size)})
+                                    </Text>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="file-attachment">
+                                  <div className="file-icon">
+                                    {getFileIcon(file)}
+                                  </div>
+                                  <div className="file-details">
+                                    <Text strong style={{ fontSize: "14px" }}>
+                                      {file.name}
+                                    </Text>
+                                    <Text
+                                      type="secondary"
+                                      style={{ fontSize: "12px" }}
+                                    >
+                                      {formatFileSize(file.size)}
+                                    </Text>
+                                  </div>
+                                  <Button
+                                    type="link"
+                                    size="small"
+                                    onClick={() => {
+                                      const link = document.createElement("a");
+                                      link.href = file.data;
+                                      link.download = file.name;
+                                      link.click();
+                                    }}
+                                  >
+                                    Download
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -493,20 +743,76 @@ const ChatPage = () => {
               </div>
 
               <div className="message-input-container">
-                <Input
-                  placeholder="Type a message..."
-                  value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
-                  onPressEnter={sendMessage}
-                  suffix={
-                    <Button
-                      type="primary"
-                      icon={<SendOutlined />}
-                      onClick={sendMessage}
-                      disabled={!newMessage.trim()}
-                    />
-                  }
-                />
+                {selectedFiles.length > 0 && (
+                  <div className="selected-files">
+                    {selectedFiles.map((file, index) => (
+                      <div key={index} className="selected-file-item">
+                        <div className="file-icon">{getFileIcon(file)}</div>
+                        <div className="file-details">
+                          <Text style={{ fontSize: "12px" }}>{file.name}</Text>
+                          <Text type="secondary" style={{ fontSize: "10px" }}>
+                            {formatFileSize(file.size)}
+                          </Text>
+                        </div>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<DeleteOutlined />}
+                          onClick={() => removeFile(index)}
+                          style={{ color: "#ff4d4f" }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ position: "relative" }}>
+                  <Input
+                    placeholder="Type a message..."
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    onPressEnter={sendMessage}
+                    suffix={
+                      <Space>
+                        <input
+                          type="file"
+                          ref={fileInputRef}
+                          onChange={handleFileSelect}
+                          multiple
+                          style={{ display: "none" }}
+                          accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip,.rar"
+                          title="Attach files (max 1MB each, up to 3 files)"
+                        />
+                        <Button
+                          type="text"
+                          icon={<PaperClipOutlined />}
+                          onClick={() => fileInputRef.current?.click()}
+                          style={{ border: "none" }}
+                          title="Attach files"
+                        />
+                        <Button
+                          type="text"
+                          icon={<SmileOutlined />}
+                          onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                          style={{ border: "none" }}
+                        />
+                        <Button
+                          type="primary"
+                          icon={<SendOutlined />}
+                          onClick={sendMessage}
+                          disabled={
+                            (!newMessage.trim() &&
+                              selectedFiles.length === 0) ||
+                            uploadingFiles
+                          }
+                          loading={uploadingFiles}
+                        />
+                      </Space>
+                    }
+                  />
+                  {showEmojiPicker && (
+                    <EmojiPicker onSelect={handleEmojiSelect} />
+                  )}
+                </div>
               </div>
             </>
           ) : (
@@ -563,6 +869,50 @@ const ChatPage = () => {
               allowClear
             />
           </Space>
+        </Modal>
+
+        <Modal
+          title={selectedImage?.name || "Image Viewer"}
+          open={imageViewerVisible}
+          onCancel={() => setImageViewerVisible(false)}
+          footer={[
+            <Button
+              key="download"
+              type="primary"
+              onClick={() => {
+                if (selectedImage) {
+                  const link = document.createElement("a");
+                  link.href = selectedImage.data;
+                  link.download = selectedImage.name;
+                  link.click();
+                }
+              }}
+            >
+              Download
+            </Button>,
+            <Button key="close" onClick={() => setImageViewerVisible(false)}>
+              Close
+            </Button>,
+          ]}
+          width="90vw"
+          style={{ maxWidth: 600 }}
+          bodyStyle={{
+            padding: 0,
+            maxHeight: "70vh",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <div className="image-viewer-modal-body">
+            {selectedImage && (
+              <img
+                src={selectedImage.data}
+                alt={selectedImage.name}
+                className="image-viewer-img"
+              />
+            )}
+          </div>
         </Modal>
       </Layout>
     </div>
