@@ -53,13 +53,13 @@ import {
 import { onAuthStateChanged } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
 import EmojiPicker from "./EmojiPicker";
+import SimpleVoiceCall from "./SimpleVoiceCall";
 import {
   createCall,
   listenForAnswer,
   listenForCandidates,
   addIceCandidate,
   listenForIncomingCalls,
-  answerCall,
   updateCallStatus,
 } from "../../../firebaseSignaling";
 import "./ChatPage.css";
@@ -86,24 +86,21 @@ const ChatPage = () => {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
-  
-  // Voice call states
+
+  // Simple call states
+  // Simple call states
   const [isInCall, setIsInCall] = useState(false);
-  const [isCallModalOpen, setIsCallModalOpen] = useState(false);
   const [incomingCall, setIncomingCall] = useState(null);
   const [isIncomingCallModalOpen, setIsIncomingCallModalOpen] = useState(false);
-  const [isAudioMuted, setIsAudioMuted] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState("disconnected");
   const [callDuration, setCallDuration] = useState(0);
   const [callStartTime, setCallStartTime] = useState(null);
-  const [currentCallId, setCurrentCallId] = useState(null);
-  
+
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
-  const pcRef = useRef(null);
+  const peerConnectionRef = useRef(null);
   const localStreamRef = useRef(null);
-  const callDurationRef = useRef(null);
   const remoteAudioRef = useRef(null);
+  const callDurationRef = useRef(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -134,50 +131,7 @@ const ChatPage = () => {
     setContacts(stored ? JSON.parse(stored) : []);
   }, []);
 
-  // Voice call effects
-  useEffect(() => {
-    if (!currentUser?.email) return;
-
-    const unsubscribe = listenForIncomingCalls(
-      currentUser.email,
-      (callData) => {
-        setIncomingCall(callData);
-        setIsIncomingCallModalOpen(true);
-
-        notification.info({
-          message: "Incoming Voice Call",
-          description: `${callData.callerName} is calling you`,
-          duration: 0,
-          onClick: () => setIsIncomingCallModalOpen(true),
-        });
-      }
-    );
-
-    return () => unsubscribe();
-  }, [currentUser]);
-
-  // Listen for call status changes
-  useEffect(() => {
-    if (!currentCallId) return;
-
-    const unsubscribe = onSnapshot(
-      doc(db, "calls", currentCallId),
-      (snapshot) => {
-        const callData = snapshot.data();
-        if (callData?.status === "ended" || callData?.status === "rejected") {
-          console.log("Call ended by other party:", callData.status);
-          notification.info({
-            message: "Call Ended",
-            description: "The other person ended the call.",
-          });
-          endCall();
-        }
-      }
-    );
-
-    return () => unsubscribe();
-  }, [currentCallId]);
-
+  // Call duration timer
   useEffect(() => {
     if (isInCall && callStartTime) {
       callDurationRef.current = setInterval(() => {
@@ -189,7 +143,6 @@ const ChatPage = () => {
         callDurationRef.current = null;
       }
     }
-
     return () => {
       if (callDurationRef.current) {
         clearInterval(callDurationRef.current);
@@ -197,21 +150,38 @@ const ChatPage = () => {
     };
   }, [isInCall, callStartTime]);
 
+  // Listen for incoming calls
+  useEffect(() => {
+    if (!currentUser?.email) return;
+
+    const unsubscribe = listenForIncomingCalls(
+      currentUser.email,
+      (callData) => {
+        setIncomingCall(callData);
+        setIsIncomingCallModalOpen(true);
+        notification.info({
+          message: "Incoming Call",
+          description: `${callData.callerName} is calling you`,
+          duration: 0,
+        });
+      }
+    );
+
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      // Cleanup on component unmount
       if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach((t) => t.stop());
+        localStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.close();
       }
       if (remoteAudioRef.current) {
         remoteAudioRef.current.pause();
         remoteAudioRef.current.srcObject = null;
-        if (remoteAudioRef.current.parentNode) {
-          remoteAudioRef.current.parentNode.removeChild(remoteAudioRef.current);
-        }
-      }
-      if (pcRef.current) {
-        pcRef.current.close();
       }
     };
   }, []);
@@ -233,9 +203,8 @@ const ChatPage = () => {
 
   const handleFileSelect = (event) => {
     const files = Array.from(event.target.files);
-
-    const maxSize = 1 * 1024 * 1024; // 1MB for Base64 storage
-    const maxFiles = 3; // Maximum 3 files at once for Base64
+    const maxSize = 1 * 1024 * 1024;
+    const maxFiles = 3;
 
     if (selectedFiles.length + files.length > maxFiles) {
       message.error(`You can only select up to ${maxFiles} files at once.`);
@@ -244,9 +213,7 @@ const ChatPage = () => {
 
     const validFiles = files.filter((file) => {
       if (file.size > maxSize) {
-        message.error(
-          `${file.name} is too large. Maximum size is 1MB for Base64 storage.`
-        );
+        message.error(`${file.name} is too large. Maximum size is 1MB.`);
         return false;
       }
       return true;
@@ -308,13 +275,16 @@ const ChatPage = () => {
     setLoading(true);
     try {
       const conversationsRef = collection(db, "conversations");
-      const myEmail = normalizeEmail(currentUser.email);
-      console.log("Querying conversations for:", myEmail);
       const q = query(
         conversationsRef,
-        where("participants", "array-contains", myEmail),
+        where(
+          "participants",
+          "array-contains",
+          normalizeEmail(currentUser.email)
+        ),
         orderBy("lastMessageTime", "desc")
       );
+
       const unsubscribe = onSnapshot(
         q,
         (snapshot) => {
@@ -322,15 +292,9 @@ const ChatPage = () => {
             id: doc.id,
             ...doc.data(),
           }));
-          console.log(
-            "Loaded conversations:",
-            conversationsData.map((c) => ({
-              id: c.id,
-              participants: c.participants,
-            }))
-          );
           setConversations(conversationsData);
-          // If we just created a conversation, select it by ID if not already selected
+          console.log("Loaded conversations:", conversationsData);
+
           if (window._pendingSelectConversationId) {
             const found = conversationsData.find(
               (c) => c.id === window._pendingSelectConversationId
@@ -420,7 +384,6 @@ const ChatPage = () => {
         }
       }
 
-      // Create message object
       const messageData = {
         sender: currentUser.email,
         senderName: currentUser.displayName || currentUser.email,
@@ -532,35 +495,20 @@ const ChatPage = () => {
     }
   };
 
-  const filteredConversations = conversations.filter(
-    (conv) =>
-      conv.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      conv.participants.some((email) =>
-        email.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-  );
-
   const formatTime = (timestamp) => {
     if (!timestamp) return "";
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const now = new Date();
+    const diffInMinutes = Math.floor((now - date) / (1000 * 60));
+
+    if (diffInMinutes < 1) return "Just now";
+    if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
+    if (diffInMinutes < 1440) {
+      const hours = Math.floor(diffInMinutes / 60);
+      return `${hours}h ago`;
+    }
+    return date.toLocaleDateString();
   };
-
-  // const formatDate = (timestamp) => {
-  //   if (!timestamp) return '';
-  //   const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-  //   const today = new Date();
-  //   const yesterday = new Date(today);
-  //   yesterday.setDate(yesterday.getDate() - 1);
-
-  //   if (date.toDateString() === today.toDateString()) {
-  //     return 'Today';
-  //   } else if (date.toDateString() === yesterday.toDateString()) {
-  //     return 'Yesterday';
-  //   } else {
-  //     return date.toLocaleDateString();
-  //   }
-  // };
 
   const conversationMenu = (conversation) => (
     <Menu>
@@ -569,26 +517,18 @@ const ChatPage = () => {
         icon={<DeleteOutlined />}
         onClick={() => deleteConversation(conversation.id)}
         danger
-        disabled={deletingConversationId === conversation.id}
       >
-        {deletingConversationId === conversation.id
-          ? "Deleting..."
-          : "Delete Conversation"}
+        Delete Conversation
       </Menu.Item>
     </Menu>
   );
 
   const getParticipantNames = () => {
     if (!selectedConversation || !currentUser) return "";
-    const myEmail = normalizeEmail(currentUser.email);
     return selectedConversation.participants
-      .filter((email) => normalizeEmail(email) !== myEmail)
-      .map((email) => {
-        const contact = contacts.find(
-          (c) => normalizeEmail(c.email) === normalizeEmail(email)
-        );
-        return contact ? contact.name : email;
-      })
+      .filter(
+        (email) => normalizeEmail(email) !== normalizeEmail(currentUser.email)
+      )
       .join(", ");
   };
 
@@ -620,337 +560,243 @@ const ChatPage = () => {
     return `${dayString}, ${timeString}`;
   };
 
-  // Voice call functions
+  // Simple call functions
   const formatCallDuration = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    return `${mins.toString().padStart(2, "0")}:${secs
+      .toString()
+      .padStart(2, "0")}`;
   };
 
-  const setupLocalAudio = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: false,
-      });
-      localStreamRef.current = stream;
-      return stream;
-    } catch (err) {
-      notification.error({
-        message: "Microphone Access Denied",
-        description: "Please allow microphone access to make voice calls.",
-      });
-      throw err;
-    }
-  };
+  const createPeerConnection = () => {
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        {
+          urls: "turn:openrelay.metered.ca:80",
+          username: "openrelayproject",
+          credential: "openrelayproject",
+        },
+      ],
+    });
 
-  const endCall = async () => {
-    console.log("Ending call...");
-    
-    // Update call status in Firebase
-    if (currentCallId) {
-      try {
-        await updateCallStatus(currentCallId, "ended");
-      } catch (error) {
-        console.error("Error updating call status:", error);
-      }
-    }
-
-    // Clean up audio elements
-    if (remoteAudioRef.current) {
-      remoteAudioRef.current.pause();
-      remoteAudioRef.current.srcObject = null;
-      if (remoteAudioRef.current.parentNode) {
-        remoteAudioRef.current.parentNode.removeChild(remoteAudioRef.current);
-      }
-      remoteAudioRef.current = null;
-    }
-
-    // Clean up local stream
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((track) => {
-        track.stop();
-        console.log("Stopped track:", track.kind);
-      });
-      localStreamRef.current = null;
-    }
-
-    // Clean up peer connection
-    if (pcRef.current) {
-      pcRef.current.close();
-      pcRef.current = null;
-    }
-
-    // Reset state
-    setIsInCall(false);
-    setIsAudioMuted(false);
-    setConnectionStatus("disconnected");
-    setCallDuration(0);
-    setCallStartTime(null);
-    setCurrentCallId(null);
-    setIncomingCall(null);
-
-    console.log("Call ended successfully");
-  };
-
-  const toggleAudio = () => {
-    if (localStreamRef.current) {
-      const audioTrack = localStreamRef.current.getAudioTracks()[0];
-      if (audioTrack) {
-        audioTrack.enabled = !audioTrack.enabled;
-        setIsAudioMuted(!audioTrack.enabled);
-      }
-    }
-  };
-
-  // Add a persistent remote audio element to the DOM for the call duration
-  useEffect(() => {
-    if (isInCall && !remoteAudioRef.current) {
-      const audioElement = document.createElement("audio");
-      audioElement.autoplay = true;
-      audioElement.muted = false;
-      audioElement.style.display = "none";
-      document.body.appendChild(audioElement);
-      remoteAudioRef.current = audioElement;
-      console.log("Persistent remote audio element created");
-    }
-    return () => {
-      if (remoteAudioRef.current) {
-        remoteAudioRef.current.pause();
-        remoteAudioRef.current.srcObject = null;
-        if (remoteAudioRef.current.parentNode) {
-          remoteAudioRef.current.parentNode.removeChild(remoteAudioRef.current);
-        }
-        remoteAudioRef.current = null;
-        console.log("Persistent remote audio element cleaned up");
+    pc.ontrack = (event) => {
+      console.log("Received remote stream:", event.streams[0]);
+      if (remoteAudioRef.current && event.streams[0]) {
+        remoteAudioRef.current.srcObject = event.streams[0];
+        remoteAudioRef.current.play().catch(console.error);
       }
     };
-  }, [isInCall]);
 
-  // Helper to log SDP
-  const logSDP = (label, sdp) => {
-    if (sdp) {
-      console.log(`${label} SDP:`, sdp);
-      if (sdp.includes('m=audio')) {
-        console.log('SDP contains audio line.');
-      } else {
-        console.warn('SDP does NOT contain audio line!');
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        console.log("ICE candidate:", event.candidate);
       }
-    }
+    };
+
+    pc.onconnectionstatechange = () => {
+      console.log("Connection state:", pc.connectionState);
+      if (pc.connectionState === "connected") {
+        notification.success({ message: "Call connected!" });
+      }
+    };
+
+    return pc;
   };
 
-  const getRTCConfig = () => ({
-    iceServers: [
-      { urls: "stun:stun.l.google.com:19302" },
-      // Free public TURN for testing (do not use in production):
-      { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
-    ]
-  });
-
-  const handleStartVoiceCall = async () => {
+  const startCall = async () => {
     if (!selectedConversation) {
-      notification.warning({
-        message: "No Conversation Selected",
-        description: "Please select a conversation to start a voice call.",
-      });
+      notification.warning({ message: "Select a conversation first" });
       return;
     }
-    const otherParticipant = selectedConversation.participants.find(
-      (email) => normalizeEmail(email) !== normalizeEmail(currentUser?.email)
-    );
-    if (!otherParticipant) {
-      notification.warning({
-        message: "No Participant Found",
-        description: "Cannot find the other participant in this conversation.",
-      });
-      return;
-    }
+
     try {
-      console.log("Starting voice call...");
+      console.log("Starting call...");
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       localStreamRef.current = stream;
-      console.log("Local stream tracks:", stream.getTracks());
-      const pc = new RTCPeerConnection(getRTCConfig());
-      pcRef.current = pc;
+
+      const pc = createPeerConnection();
+      peerConnectionRef.current = pc;
+
       stream.getTracks().forEach((track) => {
-        console.log("Adding track to peer connection:", track.kind);
+        console.log("Adding track:", track.kind);
         pc.addTrack(track, stream);
       });
-      pc.ontrack = (event) => {
-        console.log("Received remote audio track:", event.streams[0]);
-        if (event.streams[0] && remoteAudioRef.current) {
-          remoteAudioRef.current.srcObject = event.streams[0];
-          remoteAudioRef.current.muted = false;
-          remoteAudioRef.current.autoplay = true;
-          console.log("Remote audio element set and playing");
-        }
-      };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      const otherParticipant = selectedConversation.participants.find(
+        (email) => normalizeEmail(email) !== normalizeEmail(currentUser.email)
+      );
+
+      const { callId, callDocRef, offerCandidates, answerCandidates } =
+        await createCall(
+          offer,
+          otherParticipant,
+          currentUser.displayName || currentUser.email
+        );
+
       pc.onicecandidate = (event) => {
         if (event.candidate) {
           addIceCandidate(offerCandidates, event.candidate);
         }
       };
-      pc.onconnectionstatechange = () => {
-        console.log("Connection state changed:", pc.connectionState);
-        setConnectionStatus(pc.connectionState);
-        if (pc.connectionState === "connected") {
-          setCallStartTime(Date.now());
-          notification.success({
-            message: "Call Connected",
-            description: "You are now connected to the call.",
-          });
-        } else if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
-          notification.error({
-            message: "Call Disconnected",
-            description: "The call connection was lost.",
-          });
-          endCall();
-        }
-      };
-      pc.oniceconnectionstatechange = () => {
-        console.log("ICE connection state:", pc.iceConnectionState);
-        if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
-          setConnectionStatus("connected");
-          if (!callStartTime) {
-            setCallStartTime(Date.now());
-          }
-        }
-      };
-      pc.onicegatheringstatechange = () => {
-        console.log("ICE gathering state:", pc.iceGatheringState);
-      };
-      pc.onsignalingstatechange = () => {
-        console.log("Signaling state:", pc.signalingState);
-      };
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      logSDP("Local", pc.localDescription.sdp);
-      const { callId, callDocRef, offerCandidates, answerCandidates } =
-        await createCall(
-          offer,
-          otherParticipant,
-          currentUser?.displayName || currentUser?.email
-        );
+
       listenForAnswer(callDocRef, async (answer) => {
         console.log("Received answer, setting remote description");
-        logSDP("Remote", answer.sdp);
-        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+        await pc.setRemoteDescription(answer);
       });
+
       listenForCandidates(answerCandidates, (candidate) => {
-        pc.addIceCandidate(new RTCIceCandidate(candidate));
+        pc.addIceCandidate(candidate);
       });
-      setCurrentCallId(callId);
+
       setIsInCall(true);
       setCallStartTime(Date.now());
-      console.log("Call started successfully");
-    } catch (err) {
-      console.error("Error starting call:", err);
-      notification.error({ 
-        message: "Call Failed", 
-        description: err.message 
-      });
+      notification.success({ message: "Call started" });
+    } catch (error) {
+      console.error("Error starting call:", error);
+      notification.error({ message: "Failed to start call" });
     }
   };
 
-  const handleAnswerCall = async () => {
+  const answerCall = async () => {
     try {
-      console.log("Answering call...");
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       localStreamRef.current = stream;
-      console.log("Local stream tracks:", stream.getTracks());
-      const pc = new RTCPeerConnection(getRTCConfig());
-      pcRef.current = pc;
+
+      const pc = createPeerConnection();
+      peerConnectionRef.current = pc;
+
       stream.getTracks().forEach((track) => {
-        console.log("Adding track to peer connection:", track.kind);
         pc.addTrack(track, stream);
       });
-      pc.ontrack = (event) => {
-        console.log("Received remote audio track:", event.streams[0]);
-        if (event.streams[0] && remoteAudioRef.current) {
-          remoteAudioRef.current.srcObject = event.streams[0];
-          remoteAudioRef.current.muted = false;
-          remoteAudioRef.current.autoplay = true;
-          console.log("Remote audio element set and playing");
-        }
-      };
+
+      await pc.setRemoteDescription(incomingCall.offer);
+
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+
+      const { offerCandidates, answerCandidates } = await answerCall(
+        incomingCall.callId,
+        answer
+      );
+
       pc.onicecandidate = (event) => {
         if (event.candidate) {
           addIceCandidate(answerCandidates, event.candidate);
         }
       };
-      pc.onconnectionstatechange = () => {
-        console.log("Connection state changed:", pc.connectionState);
-        setConnectionStatus(pc.connectionState);
-        if (pc.connectionState === "connected") {
-          setCallStartTime(Date.now());
-          notification.success({
-            message: "Call Connected",
-            description: "You are now connected to the call.",
-          });
-        } else if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
-          notification.error({
-            message: "Call Disconnected",
-            description: "The call connection was lost.",
-          });
-          endCall();
-        }
-      };
-      pc.oniceconnectionstatechange = () => {
-        console.log("ICE connection state:", pc.iceConnectionState);
-        if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
-          setConnectionStatus("connected");
-          if (!callStartTime) {
-            setCallStartTime(Date.now());
-          }
-        }
-      };
-      pc.onicegatheringstatechange = () => {
-        console.log("ICE gathering state:", pc.iceGatheringState);
-      };
-      pc.onsignalingstatechange = () => {
-        console.log("Signaling state:", pc.signalingState);
-      };
-      await pc.setRemoteDescription(
-        new RTCSessionDescription(incomingCall.offer)
-      );
-      logSDP("Remote", incomingCall.offer.sdp);
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      logSDP("Local", pc.localDescription.sdp);
-      const { offerCandidates, answerCandidates } = await answerCall(
-        incomingCall.callId,
-        answer
-      );
+
       listenForCandidates(offerCandidates, (candidate) => {
-        pc.addIceCandidate(new RTCIceCandidate(candidate));
+        pc.addIceCandidate(candidate);
       });
-      setCurrentCallId(incomingCall.callId);
+
       setIsInCall(true);
+      setCallStartTime(Date.now());
       setIsIncomingCallModalOpen(false);
       setIncomingCall(null);
-      console.log("Call answered successfully");
-    } catch (err) {
-      console.error("Error answering call:", err);
-      notification.error({
-        message: "Failed to answer call",
-        description: err.message,
-      });
+      notification.success({ message: "Call answered" });
+    } catch (error) {
+      console.error("Error answering call:", error);
+      notification.error({ message: "Failed to answer call" });
     }
   };
 
-  const handleRejectCall = async () => {
+  const endCall = async () => {
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((track) => track.stop());
+      localStreamRef.current = null;
+    }
+
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close();
+      peerConnectionRef.current = null;
+    }
+
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.pause();
+      remoteAudioRef.current.srcObject = null;
+    }
+
+    setIsInCall(false);
+    setCallDuration(0);
+    setCallStartTime(null);
+    setIncomingCall(null);
+    remoteStreamRef.current = null;
+
+    notification.info({ message: "Call ended" });
+  };
+
+  const rejectCall = async () => {
+    if (incomingCall?.callId) {
+      await updateCallStatus(incomingCall.callId, "rejected");
+    }
+    setIsIncomingCallModalOpen(false);
+    setIncomingCall(null);
+    notification.info({ message: "Call rejected" });
+  };
+
+  // SimpleVoiceCall handlers
+  const handleCallStart = async (offer, pc) => {
     try {
-      if (incomingCall?.callId) {
-        await updateCallStatus(incomingCall.callId, "rejected");
-      }
-      setIsIncomingCallModalOpen(false);
-      setIncomingCall(null);
-      notification.info({ message: "Call rejected" });
+      const otherParticipant = selectedConversation.participants.find(
+        (email) => normalizeEmail(email) !== normalizeEmail(currentUser.email)
+      );
+
+      const { callId, callDocRef, offerCandidates, answerCandidates } =
+        await createCall(
+          offer,
+          otherParticipant,
+          currentUser.displayName || currentUser.email
+        );
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          addIceCandidate(offerCandidates, event.candidate);
+        }
+      };
+
+      listenForAnswer(callDocRef, async (answer) => {
+        await pc.setRemoteDescription(answer);
+      });
+
+      listenForCandidates(answerCandidates, (candidate) => {
+        pc.addIceCandidate(candidate);
+      });
+
+      setIsInCall(true);
+      setCallStartTime(Date.now());
+      notification.success({ message: "Call started" });
     } catch (error) {
-      console.error("Error rejecting call:", error);
-      notification.error({ message: "Failed to reject call" });
+      console.error("Error starting call:", error);
+      notification.error({ message: "Failed to start call" });
     }
   };
+
+  const handleCallEnd = () => {
+    // Update call status in Firebase if we have a current call
+    if (window.currentCallId) {
+      updateCallStatus(window.currentCallId, "ended").catch(console.error);
+    }
+    
+    setIsInCall(false);
+    setCallDuration(0);
+    setCallStartTime(null);
+    window.currentCallId = null;
+    window.endCallFunction = null;
+    notification.info({ message: "Call ended" });
+  };
+
+  const filteredConversations = conversations.filter(
+    (conversation) =>
+      conversation.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      conversation.participants.some((email) =>
+        email.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+  );
 
   return (
     <div className="chat-root">
@@ -1097,22 +943,15 @@ const ChatPage = () => {
                   </div>
                 </div>
                 <div className="chat-header-actions">
-                  <Button
-                    type="primary"
-                    icon={<PhoneOutlined />}
-                    onClick={handleStartVoiceCall}
-                    disabled={isInCall}
-                    style={{
-                      backgroundColor: "#52c41a",
-                      borderColor: "#52c41a",
-                      borderRadius: "50%",
-                      width: 40,
-                      height: 40,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
+                  <SimpleVoiceCall
+                    onCallStart={handleCallStart}
+                    onCallEnd={handleCallEnd}
+                    isInCall={isInCall}
+                    callDuration={callDuration}
+                    onEndCall={(endCallFn) => {
+                      // Store the end call function for use in the call interface
+                      window.endCallFunction = endCallFn;
                     }}
-                    title="Start Voice Call"
                   />
                 </div>
               </div>
@@ -1376,7 +1215,7 @@ const ChatPage = () => {
           </div>
         </Modal>
 
-        {/* Voice Call Interface */}
+        {/* Call Interface */}
         {isInCall && (
           <div
             style={{
@@ -1406,52 +1245,40 @@ const ChatPage = () => {
               <Title level={3} style={{ marginBottom: 8 }}>
                 Voice Call
               </Title>
-              <Text type="secondary" style={{ display: "block", marginBottom: 16 }}>
+              <Text
+                type="secondary"
+                style={{ display: "block", marginBottom: 16 }}
+              >
                 {getParticipantNames() || selectedConversation?.name}
               </Text>
               <Text strong style={{ display: "block", marginBottom: 8 }}>
-                {connectionStatus === "connected" 
-                  ? formatCallDuration(callDuration)
-                  : connectionStatus === "connecting" || connectionStatus === "checking"
-                  ? "Connecting..."
-                  : connectionStatus === "completed"
-                  ? "Call ended"
-                  : connectionStatus
-                }
+                {formatCallDuration(callDuration)}
               </Text>
-              <Text type="secondary" style={{ display: "block", marginBottom: 24 }}>
-                {connectionStatus === "connected" 
-                  ? "Connected" 
-                  : connectionStatus === "connecting" || connectionStatus === "checking"
-                  ? "Establishing connection..."
-                  : connectionStatus === "completed"
-                  ? "Call completed"
-                  : connectionStatus === "failed"
-                  ? "Connection failed"
-                  : connectionStatus
-                }
+              <Text
+                type="secondary"
+                style={{ display: "block", marginBottom: 24 }}
+              >
+                Connected
               </Text>
-              
-              <div style={{ display: "flex", justifyContent: "center", gap: 16, marginBottom: 24 }}>
-                <Button
-                  type={isAudioMuted ? "default" : "primary"}
-                  size="large"
-                  onClick={toggleAudio}
-                  icon={isAudioMuted ? "🔇" : "🔊"}
-                  style={{
-                    borderRadius: "50%",
-                    width: 56,
-                    height: 56,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                  title={isAudioMuted ? "Unmute" : "Mute"}
-                />
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "center",
+                  gap: 16,
+                  marginBottom: 24,
+                }}
+              >
                 <Button
                   danger
                   size="large"
-                  onClick={endCall}
+                  onClick={() => {
+                    if (window.endCallFunction) {
+                      window.endCallFunction();
+                    } else {
+                      handleCallEnd();
+                    }
+                  }}
                   icon="📞"
                   style={{
                     borderRadius: "50%",
@@ -1472,10 +1299,10 @@ const ChatPage = () => {
 
         {/* Incoming Call Modal */}
         <Modal
+          title="Incoming Call"
           open={isIncomingCallModalOpen}
-          title="Incoming Voice Call"
           footer={null}
-          onCancel={handleRejectCall}
+          onCancel={rejectCall}
           maskClosable={false}
           closable={false}
           centered
@@ -1498,7 +1325,7 @@ const ChatPage = () => {
               <Button
                 type="primary"
                 size="large"
-                onClick={handleAnswerCall}
+                onClick={answerCall}
                 icon={<PhoneOutlined />}
                 style={{
                   backgroundColor: "#52c41a",
@@ -1515,7 +1342,7 @@ const ChatPage = () => {
               <Button
                 danger
                 size="large"
-                onClick={handleRejectCall}
+                onClick={rejectCall}
                 icon="📞"
                 style={{
                   borderRadius: "50%",
@@ -1530,6 +1357,9 @@ const ChatPage = () => {
             </div>
           </div>
         </Modal>
+
+        {/* Hidden audio element for remote stream */}
+        <audio ref={remoteAudioRef} autoPlay style={{ display: "none" }} />
       </Layout>
     </div>
   );
