@@ -17,6 +17,7 @@ import {
   Empty,
   Spin,
   Select,
+  notification,
 } from "antd";
 import {
   SendOutlined,
@@ -32,6 +33,8 @@ import {
   FileImageOutlined,
   FileOutlined,
   PlayCircleOutlined,
+  PhoneOutlined,
+  AudioOutlined,
 } from "@ant-design/icons";
 import { auth, db } from "../../../firebase";
 import {
@@ -50,6 +53,15 @@ import {
 import { onAuthStateChanged } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
 import EmojiPicker from "./EmojiPicker";
+import {
+  createCall,
+  listenForAnswer,
+  listenForCandidates,
+  addIceCandidate,
+  listenForIncomingCalls,
+  answerCall,
+  updateCallStatus,
+} from "../../../firebaseSignaling";
 import "./ChatPage.css";
 
 const { Content, Sider } = Layout;
@@ -74,8 +86,22 @@ const ChatPage = () => {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
+  
+  // Voice call states
+  const [isInCall, setIsInCall] = useState(false);
+  const [isCallModalOpen, setIsCallModalOpen] = useState(false);
+  const [incomingCall, setIncomingCall] = useState(null);
+  const [isIncomingCallModalOpen, setIsIncomingCallModalOpen] = useState(false);
+  const [isAudioMuted, setIsAudioMuted] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState("disconnected");
+  const [callDuration, setCallDuration] = useState(0);
+  const [callStartTime, setCallStartTime] = useState(null);
+  
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const pcRef = useRef(null);
+  const localStreamRef = useRef(null);
+  const callDurationRef = useRef(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -104,6 +130,55 @@ const ChatPage = () => {
   useEffect(() => {
     const stored = localStorage.getItem("contacts");
     setContacts(stored ? JSON.parse(stored) : []);
+  }, []);
+
+  // Voice call effects
+  useEffect(() => {
+    if (!currentUser?.email) return;
+
+    const unsubscribe = listenForIncomingCalls(
+      currentUser.email,
+      (callData) => {
+        setIncomingCall(callData);
+        setIsIncomingCallModalOpen(true);
+
+        notification.info({
+          message: "Incoming Voice Call",
+          description: `${callData.callerName} is calling you`,
+          duration: 0,
+          onClick: () => setIsIncomingCallModalOpen(true),
+        });
+      }
+    );
+
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (isInCall && callStartTime) {
+      callDurationRef.current = setInterval(() => {
+        setCallDuration(Math.floor((Date.now() - callStartTime) / 1000));
+      }, 1000);
+    } else {
+      if (callDurationRef.current) {
+        clearInterval(callDurationRef.current);
+        callDurationRef.current = null;
+      }
+    }
+
+    return () => {
+      if (callDurationRef.current) {
+        clearInterval(callDurationRef.current);
+      }
+    };
+  }, [isInCall, callStartTime]);
+
+  useEffect(() => {
+    return () => {
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((t) => t.stop());
+      }
+    };
   }, []);
 
   const scrollToBottom = () => {
@@ -510,6 +585,217 @@ const ChatPage = () => {
     return `${dayString}, ${timeString}`;
   };
 
+  // Voice call functions
+  const formatCallDuration = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const setupLocalAudio = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: false,
+      });
+      localStreamRef.current = stream;
+      return stream;
+    } catch (err) {
+      notification.error({
+        message: "Microphone Access Denied",
+        description: "Please allow microphone access to make voice calls.",
+      });
+      throw err;
+    }
+  };
+
+  const endCall = () => {
+    setIsInCall(false);
+    setIsAudioMuted(false);
+    setConnectionStatus("disconnected");
+    setCallDuration(0);
+    setCallStartTime(null);
+
+    if (incomingCall?.callId) {
+      updateCallStatus(incomingCall.callId, "ended");
+    }
+
+    if (pcRef.current) {
+      pcRef.current.close();
+      pcRef.current = null;
+    }
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((track) => track.stop());
+      localStreamRef.current = null;
+    }
+  };
+
+  const toggleAudio = () => {
+    if (localStreamRef.current) {
+      const audioTrack = localStreamRef.current.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.enabled = !audioTrack.enabled;
+        setIsAudioMuted(!audioTrack.enabled);
+      }
+    }
+  };
+
+  const handleAnswerCall = async () => {
+    try {
+      await setupLocalAudio();
+
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      });
+      pcRef.current = pc;
+
+      const localStream = localStreamRef.current;
+      localStream
+        .getTracks()
+        .forEach((track) => pc.addTrack(track, localStream));
+
+      await pc.setRemoteDescription(
+        new RTCSessionDescription(incomingCall.offer)
+      );
+
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+
+      const { offerCandidates, answerCandidates } = await answerCall(
+        incomingCall.callId,
+        answer
+      );
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          addIceCandidate(answerCandidates, event.candidate);
+        }
+      };
+
+      pc.onconnectionstatechange = () => {
+        setConnectionStatus(pc.connectionState);
+        if (pc.connectionState === "connected") {
+          setCallStartTime(Date.now());
+        }
+      };
+
+      pc.ontrack = (event) => {
+        console.log("Received remote audio track:", event.streams[0]);
+        // Create audio element for remote stream
+        const audioElement = document.createElement("audio");
+        audioElement.srcObject = event.streams[0];
+        audioElement.autoplay = true;
+        document.body.appendChild(audioElement);
+      };
+
+      listenForCandidates(offerCandidates, (candidate) => {
+        pc.addIceCandidate(new RTCIceCandidate(candidate));
+      });
+
+      setIsInCall(true);
+      setIsIncomingCallModalOpen(false);
+      setIncomingCall(null);
+    } catch (err) {
+      notification.error({
+        message: "Failed to answer call",
+        description: err.message,
+      });
+    }
+  };
+
+  const handleRejectCall = () => {
+    if (incomingCall?.callId) {
+      updateCallStatus(incomingCall.callId, "rejected");
+    }
+    setIsIncomingCallModalOpen(false);
+    setIncomingCall(null);
+    notification.info({ message: "Call rejected" });
+  };
+
+  const handleStartVoiceCall = async () => {
+    if (!selectedConversation) {
+      notification.warning({
+        message: "No Conversation Selected",
+        description: "Please select a conversation to start a voice call.",
+      });
+      return;
+    }
+
+    const otherParticipant = selectedConversation.participants.find(
+      (email) => normalizeEmail(email) !== normalizeEmail(currentUser?.email)
+    );
+
+    if (!otherParticipant) {
+      notification.warning({
+        message: "No Participant Found",
+        description: "Cannot find the other participant in this conversation.",
+      });
+      return;
+    }
+
+    try {
+      await setupLocalAudio();
+
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      });
+      pcRef.current = pc;
+
+      const localStream = localStreamRef.current;
+      localStream
+        .getTracks()
+        .forEach((track) => pc.addTrack(track, localStream));
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      const { callDocRef, offerCandidates, answerCandidates } =
+        await createCall(
+          offer,
+          otherParticipant,
+          currentUser?.displayName || currentUser?.email
+        );
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          addIceCandidate(offerCandidates, event.candidate);
+        }
+      };
+
+      pc.onconnectionstatechange = () => {
+        setConnectionStatus(pc.connectionState);
+        if (pc.connectionState === "connected") {
+          setCallStartTime(Date.now());
+        }
+      };
+
+      pc.ontrack = (event) => {
+        console.log("Received remote audio track:", event.streams[0]);
+        // Create audio element for remote stream
+        const audioElement = document.createElement("audio");
+        audioElement.srcObject = event.streams[0];
+        audioElement.autoplay = true;
+        document.body.appendChild(audioElement);
+      };
+
+      listenForAnswer(callDocRef, async (answer) => {
+        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+      });
+
+      listenForCandidates(answerCandidates, (candidate) => {
+        pc.addIceCandidate(new RTCIceCandidate(candidate));
+      });
+
+      setIsInCall(true);
+      setCallStartTime(Date.now());
+    } catch (err) {
+      notification.error({ 
+        message: "Call Failed", 
+        description: err.message 
+      });
+    }
+  };
+
   return (
     <div className="chat-root">
       <Layout className="chat-layout">
@@ -653,6 +939,25 @@ const ChatPage = () => {
                       {formatLastSeen(selectedConversation.lastMessageTime)}
                     </Text>
                   </div>
+                </div>
+                <div className="chat-header-actions">
+                  <Button
+                    type="primary"
+                    icon={<PhoneOutlined />}
+                    onClick={handleStartVoiceCall}
+                    disabled={isInCall}
+                    style={{
+                      backgroundColor: "#52c41a",
+                      borderColor: "#52c41a",
+                      borderRadius: "50%",
+                      width: 40,
+                      height: 40,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                    title="Start Voice Call"
+                  />
                 </div>
               </div>
 
@@ -912,6 +1217,148 @@ const ChatPage = () => {
                 className="image-viewer-img"
               />
             )}
+          </div>
+        </Modal>
+
+        {/* Voice Call Interface */}
+        {isInCall && (
+          <div
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: "rgba(0, 0, 0, 0.8)",
+              zIndex: 1000,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <div
+              style={{
+                backgroundColor: "#fff",
+                borderRadius: 16,
+                padding: 32,
+                textAlign: "center",
+                maxWidth: 400,
+                width: "90%",
+              }}
+            >
+              <div style={{ fontSize: 64, marginBottom: 16 }}>📞</div>
+              <Title level={3} style={{ marginBottom: 8 }}>
+                Voice Call
+              </Title>
+              <Text type="secondary" style={{ display: "block", marginBottom: 16 }}>
+                {getParticipantNames() || selectedConversation?.name}
+              </Text>
+              <Text strong style={{ display: "block", marginBottom: 8 }}>
+                {connectionStatus === "connected" 
+                  ? formatCallDuration(callDuration)
+                  : "Connecting..."
+                }
+              </Text>
+              <Text type="secondary" style={{ display: "block", marginBottom: 24 }}>
+                {connectionStatus === "connected" ? "Connected" : connectionStatus}
+              </Text>
+              
+              <div style={{ display: "flex", justifyContent: "center", gap: 16, marginBottom: 24 }}>
+                <Button
+                  type={isAudioMuted ? "default" : "primary"}
+                  size="large"
+                  onClick={toggleAudio}
+                  icon={isAudioMuted ? "🔇" : "🔊"}
+                  style={{
+                    borderRadius: "50%",
+                    width: 56,
+                    height: 56,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                  title={isAudioMuted ? "Unmute" : "Mute"}
+                />
+                <Button
+                  danger
+                  size="large"
+                  onClick={endCall}
+                  icon="📞"
+                  style={{
+                    borderRadius: "50%",
+                    width: 56,
+                    height: 56,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: "#ff4d4f",
+                    borderColor: "#ff4d4f",
+                  }}
+                  title="End Call"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Incoming Call Modal */}
+        <Modal
+          open={isIncomingCallModalOpen}
+          title="Incoming Voice Call"
+          footer={null}
+          onCancel={handleRejectCall}
+          maskClosable={false}
+          closable={false}
+          centered
+        >
+          <div style={{ textAlign: "center", padding: "20px" }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>📞</div>
+            <Title level={3} style={{ marginBottom: 8 }}>
+              Incoming Call
+            </Title>
+            <Text style={{ display: "block", marginBottom: 24 }}>
+              {incomingCall?.callerName} is calling you
+            </Text>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                gap: 16,
+              }}
+            >
+              <Button
+                type="primary"
+                size="large"
+                onClick={handleAnswerCall}
+                icon={<PhoneOutlined />}
+                style={{
+                  backgroundColor: "#52c41a",
+                  borderColor: "#52c41a",
+                  borderRadius: "50%",
+                  width: 56,
+                  height: 56,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+                title="Answer"
+              />
+              <Button
+                danger
+                size="large"
+                onClick={handleRejectCall}
+                icon="📞"
+                style={{
+                  borderRadius: "50%",
+                  width: 56,
+                  height: 56,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+                title="Reject"
+              />
+            </div>
           </div>
         </Modal>
       </Layout>

@@ -119,6 +119,17 @@
   gap: 12px;
 }
 
+.chat-root .chat-header-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chat-root .chat-header-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .chat-root .messages-container {
   flex: 1;
   padding: 24px;
