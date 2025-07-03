@@ -96,12 +96,14 @@ const ChatPage = () => {
   const [connectionStatus, setConnectionStatus] = useState("disconnected");
   const [callDuration, setCallDuration] = useState(0);
   const [callStartTime, setCallStartTime] = useState(null);
+  const [currentCallId, setCurrentCallId] = useState(null);
   
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
   const pcRef = useRef(null);
   const localStreamRef = useRef(null);
   const callDurationRef = useRef(null);
+  const remoteAudioRef = useRef(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -154,6 +156,28 @@ const ChatPage = () => {
     return () => unsubscribe();
   }, [currentUser]);
 
+  // Listen for call status changes
+  useEffect(() => {
+    if (!currentCallId) return;
+
+    const unsubscribe = onSnapshot(
+      doc(db, "calls", currentCallId),
+      (snapshot) => {
+        const callData = snapshot.data();
+        if (callData?.status === "ended" || callData?.status === "rejected") {
+          console.log("Call ended by other party:", callData.status);
+          notification.info({
+            message: "Call Ended",
+            description: "The other person ended the call.",
+          });
+          endCall();
+        }
+      }
+    );
+
+    return () => unsubscribe();
+  }, [currentCallId]);
+
   useEffect(() => {
     if (isInCall && callStartTime) {
       callDurationRef.current = setInterval(() => {
@@ -175,8 +199,19 @@ const ChatPage = () => {
 
   useEffect(() => {
     return () => {
+      // Cleanup on component unmount
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((t) => t.stop());
+      }
+      if (remoteAudioRef.current) {
+        remoteAudioRef.current.pause();
+        remoteAudioRef.current.srcObject = null;
+        if (remoteAudioRef.current.parentNode) {
+          remoteAudioRef.current.parentNode.removeChild(remoteAudioRef.current);
+        }
+      }
+      if (pcRef.current) {
+        pcRef.current.close();
       }
     };
   }, []);
@@ -609,25 +644,53 @@ const ChatPage = () => {
     }
   };
 
-  const endCall = () => {
+  const endCall = async () => {
+    console.log("Ending call...");
+    
+    // Update call status in Firebase
+    if (currentCallId) {
+      try {
+        await updateCallStatus(currentCallId, "ended");
+      } catch (error) {
+        console.error("Error updating call status:", error);
+      }
+    }
+
+    // Clean up audio elements
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.pause();
+      remoteAudioRef.current.srcObject = null;
+      if (remoteAudioRef.current.parentNode) {
+        remoteAudioRef.current.parentNode.removeChild(remoteAudioRef.current);
+      }
+      remoteAudioRef.current = null;
+    }
+
+    // Clean up local stream
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((track) => {
+        track.stop();
+        console.log("Stopped track:", track.kind);
+      });
+      localStreamRef.current = null;
+    }
+
+    // Clean up peer connection
+    if (pcRef.current) {
+      pcRef.current.close();
+      pcRef.current = null;
+    }
+
+    // Reset state
     setIsInCall(false);
     setIsAudioMuted(false);
     setConnectionStatus("disconnected");
     setCallDuration(0);
     setCallStartTime(null);
+    setCurrentCallId(null);
+    setIncomingCall(null);
 
-    if (incomingCall?.callId) {
-      updateCallStatus(incomingCall.callId, "ended");
-    }
-
-    if (pcRef.current) {
-      pcRef.current.close();
-      pcRef.current = null;
-    }
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((track) => track.stop());
-      localStreamRef.current = null;
-    }
+    console.log("Call ended successfully");
   };
 
   const toggleAudio = () => {
@@ -642,6 +705,7 @@ const ChatPage = () => {
 
   const handleAnswerCall = async () => {
     try {
+      console.log("Answering call...");
       await setupLocalAudio();
 
       const pc = new RTCPeerConnection({
@@ -652,7 +716,10 @@ const ChatPage = () => {
       const localStream = localStreamRef.current;
       localStream
         .getTracks()
-        .forEach((track) => pc.addTrack(track, localStream));
+        .forEach((track) => {
+          console.log("Adding track to peer connection:", track.kind);
+          pc.addTrack(track, localStream);
+        });
 
       await pc.setRemoteDescription(
         new RTCSessionDescription(incomingCall.offer)
@@ -673,29 +740,60 @@ const ChatPage = () => {
       };
 
       pc.onconnectionstatechange = () => {
+        console.log("Connection state changed:", pc.connectionState);
         setConnectionStatus(pc.connectionState);
         if (pc.connectionState === "connected") {
           setCallStartTime(Date.now());
+          notification.success({
+            message: "Call Connected",
+            description: "You are now connected to the call.",
+          });
+        } else if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
+          notification.error({
+            message: "Call Disconnected",
+            description: "The call connection was lost.",
+          });
+          endCall();
         }
       };
 
       pc.ontrack = (event) => {
         console.log("Received remote audio track:", event.streams[0]);
-        // Create audio element for remote stream
-        const audioElement = document.createElement("audio");
-        audioElement.srcObject = event.streams[0];
-        audioElement.autoplay = true;
-        document.body.appendChild(audioElement);
+        if (event.streams[0]) {
+          // Remove any existing remote audio element
+          if (remoteAudioRef.current) {
+            remoteAudioRef.current.pause();
+            remoteAudioRef.current.srcObject = null;
+            if (remoteAudioRef.current.parentNode) {
+              remoteAudioRef.current.parentNode.removeChild(remoteAudioRef.current);
+            }
+          }
+
+          // Create new audio element for remote stream
+          const audioElement = document.createElement("audio");
+          audioElement.srcObject = event.streams[0];
+          audioElement.autoplay = true;
+          audioElement.volume = 1.0;
+          audioElement.style.display = "none";
+          document.body.appendChild(audioElement);
+          remoteAudioRef.current = audioElement;
+
+          console.log("Remote audio element created and playing");
+        }
       };
 
       listenForCandidates(offerCandidates, (candidate) => {
         pc.addIceCandidate(new RTCIceCandidate(candidate));
       });
 
+      setCurrentCallId(incomingCall.callId);
       setIsInCall(true);
       setIsIncomingCallModalOpen(false);
       setIncomingCall(null);
+      
+      console.log("Call answered successfully");
     } catch (err) {
+      console.error("Error answering call:", err);
       notification.error({
         message: "Failed to answer call",
         description: err.message,
@@ -703,13 +801,18 @@ const ChatPage = () => {
     }
   };
 
-  const handleRejectCall = () => {
-    if (incomingCall?.callId) {
-      updateCallStatus(incomingCall.callId, "rejected");
+  const handleRejectCall = async () => {
+    try {
+      if (incomingCall?.callId) {
+        await updateCallStatus(incomingCall.callId, "rejected");
+      }
+      setIsIncomingCallModalOpen(false);
+      setIncomingCall(null);
+      notification.info({ message: "Call rejected" });
+    } catch (error) {
+      console.error("Error rejecting call:", error);
+      notification.error({ message: "Failed to reject call" });
     }
-    setIsIncomingCallModalOpen(false);
-    setIncomingCall(null);
-    notification.info({ message: "Call rejected" });
   };
 
   const handleStartVoiceCall = async () => {
@@ -734,6 +837,7 @@ const ChatPage = () => {
     }
 
     try {
+      console.log("Starting voice call...");
       await setupLocalAudio();
 
       const pc = new RTCPeerConnection({
@@ -744,12 +848,15 @@ const ChatPage = () => {
       const localStream = localStreamRef.current;
       localStream
         .getTracks()
-        .forEach((track) => pc.addTrack(track, localStream));
+        .forEach((track) => {
+          console.log("Adding track to peer connection:", track.kind);
+          pc.addTrack(track, localStream);
+        });
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      const { callDocRef, offerCandidates, answerCandidates } =
+      const { callId, callDocRef, offerCandidates, answerCandidates } =
         await createCall(
           offer,
           otherParticipant,
@@ -763,22 +870,50 @@ const ChatPage = () => {
       };
 
       pc.onconnectionstatechange = () => {
+        console.log("Connection state changed:", pc.connectionState);
         setConnectionStatus(pc.connectionState);
         if (pc.connectionState === "connected") {
           setCallStartTime(Date.now());
+          notification.success({
+            message: "Call Connected",
+            description: "You are now connected to the call.",
+          });
+        } else if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
+          notification.error({
+            message: "Call Disconnected",
+            description: "The call connection was lost.",
+          });
+          endCall();
         }
       };
 
       pc.ontrack = (event) => {
         console.log("Received remote audio track:", event.streams[0]);
-        // Create audio element for remote stream
-        const audioElement = document.createElement("audio");
-        audioElement.srcObject = event.streams[0];
-        audioElement.autoplay = true;
-        document.body.appendChild(audioElement);
+        if (event.streams[0]) {
+          // Remove any existing remote audio element
+          if (remoteAudioRef.current) {
+            remoteAudioRef.current.pause();
+            remoteAudioRef.current.srcObject = null;
+            if (remoteAudioRef.current.parentNode) {
+              remoteAudioRef.current.parentNode.removeChild(remoteAudioRef.current);
+            }
+          }
+
+          // Create new audio element for remote stream
+          const audioElement = document.createElement("audio");
+          audioElement.srcObject = event.streams[0];
+          audioElement.autoplay = true;
+          audioElement.volume = 1.0;
+          audioElement.style.display = "none";
+          document.body.appendChild(audioElement);
+          remoteAudioRef.current = audioElement;
+
+          console.log("Remote audio element created and playing");
+        }
       };
 
       listenForAnswer(callDocRef, async (answer) => {
+        console.log("Received answer, setting remote description");
         await pc.setRemoteDescription(new RTCSessionDescription(answer));
       });
 
@@ -786,9 +921,13 @@ const ChatPage = () => {
         pc.addIceCandidate(new RTCIceCandidate(candidate));
       });
 
+      setCurrentCallId(callId);
       setIsInCall(true);
       setCallStartTime(Date.now());
+      
+      console.log("Call started successfully");
     } catch (err) {
+      console.error("Error starting call:", err);
       notification.error({ 
         message: "Call Failed", 
         description: err.message 
@@ -1256,11 +1395,24 @@ const ChatPage = () => {
               <Text strong style={{ display: "block", marginBottom: 8 }}>
                 {connectionStatus === "connected" 
                   ? formatCallDuration(callDuration)
-                  : "Connecting..."
+                  : connectionStatus === "connecting" || connectionStatus === "checking"
+                  ? "Connecting..."
+                  : connectionStatus === "completed"
+                  ? "Call ended"
+                  : connectionStatus
                 }
               </Text>
               <Text type="secondary" style={{ display: "block", marginBottom: 24 }}>
-                {connectionStatus === "connected" ? "Connected" : connectionStatus}
+                {connectionStatus === "connected" 
+                  ? "Connected" 
+                  : connectionStatus === "connecting" || connectionStatus === "checking"
+                  ? "Establishing connection..."
+                  : connectionStatus === "completed"
+                  ? "Call completed"
+                  : connectionStatus === "failed"
+                  ? "Connection failed"
+                  : connectionStatus
+                }
               </Text>
               
               <div style={{ display: "flex", justifyContent: "center", gap: 16, marginBottom: 24 }}>
