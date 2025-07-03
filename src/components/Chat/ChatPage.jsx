@@ -703,42 +703,93 @@ const ChatPage = () => {
     }
   };
 
-  const handleAnswerCall = async () => {
-    try {
-      console.log("Answering call...");
-      await setupLocalAudio();
+  // Add a persistent remote audio element to the DOM for the call duration
+  useEffect(() => {
+    if (isInCall && !remoteAudioRef.current) {
+      const audioElement = document.createElement("audio");
+      audioElement.autoplay = true;
+      audioElement.muted = false;
+      audioElement.style.display = "none";
+      document.body.appendChild(audioElement);
+      remoteAudioRef.current = audioElement;
+      console.log("Persistent remote audio element created");
+    }
+    return () => {
+      if (remoteAudioRef.current) {
+        remoteAudioRef.current.pause();
+        remoteAudioRef.current.srcObject = null;
+        if (remoteAudioRef.current.parentNode) {
+          remoteAudioRef.current.parentNode.removeChild(remoteAudioRef.current);
+        }
+        remoteAudioRef.current = null;
+        console.log("Persistent remote audio element cleaned up");
+      }
+    };
+  }, [isInCall]);
 
-      const pc = new RTCPeerConnection({
-        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  // Helper to log SDP
+  const logSDP = (label, sdp) => {
+    if (sdp) {
+      console.log(`${label} SDP:`, sdp);
+      if (sdp.includes('m=audio')) {
+        console.log('SDP contains audio line.');
+      } else {
+        console.warn('SDP does NOT contain audio line!');
+      }
+    }
+  };
+
+  const getRTCConfig = () => ({
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      // Free public TURN for testing (do not use in production):
+      { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
+    ]
+  });
+
+  const handleStartVoiceCall = async () => {
+    if (!selectedConversation) {
+      notification.warning({
+        message: "No Conversation Selected",
+        description: "Please select a conversation to start a voice call.",
       });
+      return;
+    }
+    const otherParticipant = selectedConversation.participants.find(
+      (email) => normalizeEmail(email) !== normalizeEmail(currentUser?.email)
+    );
+    if (!otherParticipant) {
+      notification.warning({
+        message: "No Participant Found",
+        description: "Cannot find the other participant in this conversation.",
+      });
+      return;
+    }
+    try {
+      console.log("Starting voice call...");
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      localStreamRef.current = stream;
+      console.log("Local stream tracks:", stream.getTracks());
+      const pc = new RTCPeerConnection(getRTCConfig());
       pcRef.current = pc;
-
-      const localStream = localStreamRef.current;
-      localStream
-        .getTracks()
-        .forEach((track) => {
-          console.log("Adding track to peer connection:", track.kind);
-          pc.addTrack(track, localStream);
-        });
-
-      await pc.setRemoteDescription(
-        new RTCSessionDescription(incomingCall.offer)
-      );
-
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-
-      const { offerCandidates, answerCandidates } = await answerCall(
-        incomingCall.callId,
-        answer
-      );
-
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          addIceCandidate(answerCandidates, event.candidate);
+      stream.getTracks().forEach((track) => {
+        console.log("Adding track to peer connection:", track.kind);
+        pc.addTrack(track, stream);
+      });
+      pc.ontrack = (event) => {
+        console.log("Received remote audio track:", event.streams[0]);
+        if (event.streams[0] && remoteAudioRef.current) {
+          remoteAudioRef.current.srcObject = event.streams[0];
+          remoteAudioRef.current.muted = false;
+          remoteAudioRef.current.autoplay = true;
+          console.log("Remote audio element set and playing");
         }
       };
-
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          addIceCandidate(offerCandidates, event.candidate);
+        }
+      };
       pc.onconnectionstatechange = () => {
         console.log("Connection state changed:", pc.connectionState);
         setConnectionStatus(pc.connectionState);
@@ -756,41 +807,127 @@ const ChatPage = () => {
           endCall();
         }
       };
-
-      pc.ontrack = (event) => {
-        console.log("Received remote audio track:", event.streams[0]);
-        if (event.streams[0]) {
-          // Remove any existing remote audio element
-          if (remoteAudioRef.current) {
-            remoteAudioRef.current.pause();
-            remoteAudioRef.current.srcObject = null;
-            if (remoteAudioRef.current.parentNode) {
-              remoteAudioRef.current.parentNode.removeChild(remoteAudioRef.current);
-            }
+      pc.oniceconnectionstatechange = () => {
+        console.log("ICE connection state:", pc.iceConnectionState);
+        if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
+          setConnectionStatus("connected");
+          if (!callStartTime) {
+            setCallStartTime(Date.now());
           }
-
-          // Create new audio element for remote stream
-          const audioElement = document.createElement("audio");
-          audioElement.srcObject = event.streams[0];
-          audioElement.autoplay = true;
-          audioElement.volume = 1.0;
-          audioElement.style.display = "none";
-          document.body.appendChild(audioElement);
-          remoteAudioRef.current = audioElement;
-
-          console.log("Remote audio element created and playing");
         }
       };
+      pc.onicegatheringstatechange = () => {
+        console.log("ICE gathering state:", pc.iceGatheringState);
+      };
+      pc.onsignalingstatechange = () => {
+        console.log("Signaling state:", pc.signalingState);
+      };
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      logSDP("Local", pc.localDescription.sdp);
+      const { callId, callDocRef, offerCandidates, answerCandidates } =
+        await createCall(
+          offer,
+          otherParticipant,
+          currentUser?.displayName || currentUser?.email
+        );
+      listenForAnswer(callDocRef, async (answer) => {
+        console.log("Received answer, setting remote description");
+        logSDP("Remote", answer.sdp);
+        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+      });
+      listenForCandidates(answerCandidates, (candidate) => {
+        pc.addIceCandidate(new RTCIceCandidate(candidate));
+      });
+      setCurrentCallId(callId);
+      setIsInCall(true);
+      setCallStartTime(Date.now());
+      console.log("Call started successfully");
+    } catch (err) {
+      console.error("Error starting call:", err);
+      notification.error({ 
+        message: "Call Failed", 
+        description: err.message 
+      });
+    }
+  };
 
+  const handleAnswerCall = async () => {
+    try {
+      console.log("Answering call...");
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      localStreamRef.current = stream;
+      console.log("Local stream tracks:", stream.getTracks());
+      const pc = new RTCPeerConnection(getRTCConfig());
+      pcRef.current = pc;
+      stream.getTracks().forEach((track) => {
+        console.log("Adding track to peer connection:", track.kind);
+        pc.addTrack(track, stream);
+      });
+      pc.ontrack = (event) => {
+        console.log("Received remote audio track:", event.streams[0]);
+        if (event.streams[0] && remoteAudioRef.current) {
+          remoteAudioRef.current.srcObject = event.streams[0];
+          remoteAudioRef.current.muted = false;
+          remoteAudioRef.current.autoplay = true;
+          console.log("Remote audio element set and playing");
+        }
+      };
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          addIceCandidate(answerCandidates, event.candidate);
+        }
+      };
+      pc.onconnectionstatechange = () => {
+        console.log("Connection state changed:", pc.connectionState);
+        setConnectionStatus(pc.connectionState);
+        if (pc.connectionState === "connected") {
+          setCallStartTime(Date.now());
+          notification.success({
+            message: "Call Connected",
+            description: "You are now connected to the call.",
+          });
+        } else if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
+          notification.error({
+            message: "Call Disconnected",
+            description: "The call connection was lost.",
+          });
+          endCall();
+        }
+      };
+      pc.oniceconnectionstatechange = () => {
+        console.log("ICE connection state:", pc.iceConnectionState);
+        if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
+          setConnectionStatus("connected");
+          if (!callStartTime) {
+            setCallStartTime(Date.now());
+          }
+        }
+      };
+      pc.onicegatheringstatechange = () => {
+        console.log("ICE gathering state:", pc.iceGatheringState);
+      };
+      pc.onsignalingstatechange = () => {
+        console.log("Signaling state:", pc.signalingState);
+      };
+      await pc.setRemoteDescription(
+        new RTCSessionDescription(incomingCall.offer)
+      );
+      logSDP("Remote", incomingCall.offer.sdp);
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      logSDP("Local", pc.localDescription.sdp);
+      const { offerCandidates, answerCandidates } = await answerCall(
+        incomingCall.callId,
+        answer
+      );
       listenForCandidates(offerCandidates, (candidate) => {
         pc.addIceCandidate(new RTCIceCandidate(candidate));
       });
-
       setCurrentCallId(incomingCall.callId);
       setIsInCall(true);
       setIsIncomingCallModalOpen(false);
       setIncomingCall(null);
-      
       console.log("Call answered successfully");
     } catch (err) {
       console.error("Error answering call:", err);
@@ -812,126 +949,6 @@ const ChatPage = () => {
     } catch (error) {
       console.error("Error rejecting call:", error);
       notification.error({ message: "Failed to reject call" });
-    }
-  };
-
-  const handleStartVoiceCall = async () => {
-    if (!selectedConversation) {
-      notification.warning({
-        message: "No Conversation Selected",
-        description: "Please select a conversation to start a voice call.",
-      });
-      return;
-    }
-
-    const otherParticipant = selectedConversation.participants.find(
-      (email) => normalizeEmail(email) !== normalizeEmail(currentUser?.email)
-    );
-
-    if (!otherParticipant) {
-      notification.warning({
-        message: "No Participant Found",
-        description: "Cannot find the other participant in this conversation.",
-      });
-      return;
-    }
-
-    try {
-      console.log("Starting voice call...");
-      await setupLocalAudio();
-
-      const pc = new RTCPeerConnection({
-        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-      });
-      pcRef.current = pc;
-
-      const localStream = localStreamRef.current;
-      localStream
-        .getTracks()
-        .forEach((track) => {
-          console.log("Adding track to peer connection:", track.kind);
-          pc.addTrack(track, localStream);
-        });
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-
-      const { callId, callDocRef, offerCandidates, answerCandidates } =
-        await createCall(
-          offer,
-          otherParticipant,
-          currentUser?.displayName || currentUser?.email
-        );
-
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          addIceCandidate(offerCandidates, event.candidate);
-        }
-      };
-
-      pc.onconnectionstatechange = () => {
-        console.log("Connection state changed:", pc.connectionState);
-        setConnectionStatus(pc.connectionState);
-        if (pc.connectionState === "connected") {
-          setCallStartTime(Date.now());
-          notification.success({
-            message: "Call Connected",
-            description: "You are now connected to the call.",
-          });
-        } else if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
-          notification.error({
-            message: "Call Disconnected",
-            description: "The call connection was lost.",
-          });
-          endCall();
-        }
-      };
-
-      pc.ontrack = (event) => {
-        console.log("Received remote audio track:", event.streams[0]);
-        if (event.streams[0]) {
-          // Remove any existing remote audio element
-          if (remoteAudioRef.current) {
-            remoteAudioRef.current.pause();
-            remoteAudioRef.current.srcObject = null;
-            if (remoteAudioRef.current.parentNode) {
-              remoteAudioRef.current.parentNode.removeChild(remoteAudioRef.current);
-            }
-          }
-
-          // Create new audio element for remote stream
-          const audioElement = document.createElement("audio");
-          audioElement.srcObject = event.streams[0];
-          audioElement.autoplay = true;
-          audioElement.volume = 1.0;
-          audioElement.style.display = "none";
-          document.body.appendChild(audioElement);
-          remoteAudioRef.current = audioElement;
-
-          console.log("Remote audio element created and playing");
-        }
-      };
-
-      listenForAnswer(callDocRef, async (answer) => {
-        console.log("Received answer, setting remote description");
-        await pc.setRemoteDescription(new RTCSessionDescription(answer));
-      });
-
-      listenForCandidates(answerCandidates, (candidate) => {
-        pc.addIceCandidate(new RTCIceCandidate(candidate));
-      });
-
-      setCurrentCallId(callId);
-      setIsInCall(true);
-      setCallStartTime(Date.now());
-      
-      console.log("Call started successfully");
-    } catch (err) {
-      console.error("Error starting call:", err);
-      notification.error({ 
-        message: "Call Failed", 
-        description: err.message 
-      });
     }
   };
 
