@@ -781,7 +781,6 @@ const ChatPage = () => {
     if (window.currentCallId) {
       updateCallStatus(window.currentCallId, "ended").catch(console.error);
     }
-    
     setIsInCall(false);
     setCallDuration(0);
     setCallStartTime(null);
@@ -923,7 +922,7 @@ const ChatPage = () => {
                   <Avatar size={32} icon={<UserOutlined />} />
                   <div>
                     <Text strong style={{ fontSize: 18, display: "block" }}>
-                      {getParticipantNames() || selectedConversation.name}
+                      {selectedConversation.name || "Chat Me User"}
                     </Text>
                     <Text
                       type="secondary"

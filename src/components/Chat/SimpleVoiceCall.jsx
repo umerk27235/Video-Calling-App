@@ -1,9 +1,15 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Button, notification } from 'antd';
-import { PhoneOutlined } from '@ant-design/icons';
-import { updateCallStatus } from '../../../firebaseSignaling';
+import React, { useState, useRef, useEffect } from "react";
+import { Button, notification } from "antd";
+import { PhoneOutlined } from "@ant-design/icons";
+import { updateCallStatus } from "../../../firebaseSignaling";
 
-const SimpleVoiceCall = ({ onCallStart, onCallEnd, isInCall, callDuration, onEndCall }) => {
+const SimpleVoiceCall = ({
+  onCallStart,
+  onCallEnd,
+  isInCall,
+  callDuration,
+  onEndCall,
+}) => {
   const [localStream, setLocalStream] = useState(null);
   const [peerConnection, setPeerConnection] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
@@ -12,17 +18,16 @@ const SimpleVoiceCall = ({ onCallStart, onCallEnd, isInCall, callDuration, onEnd
   const createPeerConnection = () => {
     const pc = new RTCPeerConnection({
       iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { 
-          urls: 'turn:openrelay.metered.ca:80',
-          username: 'openrelayproject',
-          credential: 'openrelayproject'
-        }
-      ]
+        { urls: "stun:stun.l.google.com:19302" },
+        {
+          urls: "turn:openrelay.metered.ca:80",
+          username: "openrelayproject",
+          credential: "openrelayproject",
+        },
+      ],
     });
 
     pc.ontrack = (event) => {
-      console.log('Received remote stream:', event.streams[0]);
       setRemoteStream(event.streams[0]);
       if (audioRef.current) {
         audioRef.current.srcObject = event.streams[0];
@@ -31,15 +36,15 @@ const SimpleVoiceCall = ({ onCallStart, onCallEnd, isInCall, callDuration, onEnd
     };
 
     pc.onicecandidate = (event) => {
+      // ICE candidate received; handle signaling here if needed
       if (event.candidate) {
-        console.log('ICE candidate:', event.candidate);
+        // TODO: Send candidate to remote peer via signaling server
       }
     };
 
     pc.onconnectionstatechange = () => {
-      console.log('Connection state:', pc.connectionState);
-      if (pc.connectionState === 'connected') {
-        notification.success({ message: 'Call connected!' });
+      if (pc.connectionState === "connected") {
+        notification.success({ message: "Call connected!" });
       }
     };
 
@@ -48,46 +53,43 @@ const SimpleVoiceCall = ({ onCallStart, onCallEnd, isInCall, callDuration, onEnd
 
   const startCall = async () => {
     try {
-      console.log('Starting voice call...');
-      
+      console.log("Starting voice call...");
+
       // Get user media
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: true, 
-        video: false 
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: false,
       });
       setLocalStream(stream);
-      console.log('Local stream obtained:', stream.getTracks());
 
       // Create peer connection
       const pc = createPeerConnection();
       setPeerConnection(pc);
 
       // Add local tracks
-      stream.getTracks().forEach(track => {
-        console.log('Adding track to peer connection:', track.kind);
+      stream.getTracks().forEach((track) => {
         pc.addTrack(track, stream);
       });
 
       // Create offer
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      console.log('Offer created and set as local description');
+      console.log("Offer created and set as local description");
 
       onCallStart(offer, pc);
-      
     } catch (error) {
-      console.error('Error starting call:', error);
-      notification.error({ message: 'Failed to start call' });
+      console.error("Error starting call:", error);
+      notification.error({ message: "Failed to start call" });
     }
   };
 
   const endCall = () => {
-    console.log('Ending call...');
-    
+    console.log("Ending call...");
+
     if (localStream) {
-      localStream.getTracks().forEach(track => {
+      localStream.getTracks().forEach((track) => {
         track.stop();
-        console.log('Stopped track:', track.kind);
+        console.log("Stopped track:", track.kind);
       });
       setLocalStream(null);
     }
@@ -103,14 +105,14 @@ const SimpleVoiceCall = ({ onCallStart, onCallEnd, isInCall, callDuration, onEnd
     }
 
     setRemoteStream(null);
-    
+
     // Update call status in Firebase if we have a current call
     if (window.currentCallId) {
       updateCallStatus(window.currentCallId, "ended").catch(console.error);
     }
-    
+
     onCallEnd();
-    console.log('Call ended successfully');
+    console.log("Call ended successfully");
   };
 
   // Expose endCall function to parent
@@ -123,7 +125,7 @@ const SimpleVoiceCall = ({ onCallStart, onCallEnd, isInCall, callDuration, onEnd
   useEffect(() => {
     return () => {
       if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
+        localStream.getTracks().forEach((track) => track.stop());
       }
       if (peerConnection) {
         peerConnection.close();
@@ -150,15 +152,11 @@ const SimpleVoiceCall = ({ onCallStart, onCallEnd, isInCall, callDuration, onEnd
         }}
         title="Start Voice Call"
       />
-      
+
       {/* Hidden audio element */}
-      <audio
-        ref={audioRef}
-        autoPlay
-        style={{ display: 'none' }}
-      />
+      <audio ref={audioRef} autoPlay style={{ display: "none" }} />
     </div>
   );
 };
 
-export default SimpleVoiceCall; 
+export default SimpleVoiceCall;
